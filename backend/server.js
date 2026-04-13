@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const bodyParser = require('body-parser');
+const mongoose = require('mongoose');
 const config = require('./config/config');
 
 // Import routes
@@ -9,6 +10,22 @@ const mediaRoutes = require('./routes/media');
 const verificationRoutes = require('./routes/verification');
 
 const app = express();
+
+// ==================== DATABASE CONNECTION ====================
+
+const connectDatabase = async () => {
+  try {
+    await mongoose.connect(config.mongodbUri, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log('✅ MongoDB connected successfully');
+    console.log(`Database: ${config.mongodbUri}`);
+  } catch (error) {
+    console.error('❌ MongoDB connection failed:', error.message);
+    console.error('Using mock API mode without database persistence');
+  }
+};
 
 // ==================== MIDDLEWARE ====================
 
@@ -106,19 +123,25 @@ app.use((err, req, res, next) => {
 
 const PORT = config.port;
 
-app.listen(PORT, () => {
-  console.log('');
-  console.log('╔════════════════════════════════════════════╗');
-  console.log('║     🛡️  RealityProof Backend Server      ║');
-  console.log('╚════════════════════════════════════════════╝');
-  console.log('');
-  console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`📝 API Documentation: http://localhost:${PORT}/api`);
-  console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
-  console.log('');
-  console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`CORS Origins: ${config.corsOrigin.join(', ')}`);
-  console.log('');
+// Connect to database before starting server
+connectDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log('');
+    console.log('╔════════════════════════════════════════════╗');
+    console.log('║     🛡️  RealityProof Backend Server      ║');
+    console.log('╚════════════════════════════════════════════╝');
+    console.log('');
+    console.log(`✅ Server running on http://localhost:${PORT}`);
+    console.log(`📝 API Documentation: http://localhost:${PORT}/api`);
+    console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+    console.log('');
+    console.log(`Environment: ${config.nodeEnv}`);
+    console.log(`CORS Origins: ${config.corsOrigin.join(', ')}`);
+    console.log('');
+  });
+}).catch(err => {
+  console.error('Failed to start server:', err.message);
+});
   console.log('Endpoints:');
   console.log('  POST /api/media/generate-proof');
   console.log('  POST /api/media/verify');

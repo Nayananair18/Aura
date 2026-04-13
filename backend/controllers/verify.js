@@ -1,4 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
+const VerificationResult = require('../models/VerificationResult');
+const Proof = require('../models/Proof');
 const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
 
@@ -32,15 +34,16 @@ const verifyMedia = async (req, res) => {
     }
 
     // Generate verification result
+    const verificationId = `VERIF_${uuidv4()}`;
     const verificationResult = {
-      verificationId: `VERIF_${uuidv4()}`,
+      verificationId,
       status,
       confidence,
       hashValidation: {
-        status: isExactMatch ? 'match' : 'mismatch',
-        originalHash: fileHash.substring(0, 16) + '...',
-        uploadedHash: uploadedMediaHash.substring(0, 16) + '...',
+        isValid: isExactMatch,
         matchPercentage,
+        uploadedHash: uploadedMediaHash.substring(0, 16) + '...',
+        storedHash: fileHash.substring(0, 16) + '...',
       },
       sensorValidation: isExactMatch ? 'passed' : 'failed',
       metadataConsistency: isExactMatch ? 'consistent' : 'inconsistent',
@@ -83,13 +86,29 @@ const storeVerificationResult = async (req, res) => {
         message: 'Missing required fields: mediaHash, verificationResult',
       });
     }
+const verificationId = `RESULT_${uuidv4()}`;
 
-    // In a real app, save to database
-    const resultId = `RESULT_${uuidv4()}`;
+    // Save to database
+    const result = new VerificationResult({
+      verificationId,
+      proofId: verificationResult.verificationId,
+      fileHash: mediaHash,
+      hashValidation: verificationResult.hashValidation,
+      status: verificationResult.status,
+      confidence: verificationResult.confidence,
+      metadata: {
+        fileName: metadata?.fileName,
+        fileSize: metadata?.fileSize,
+        fileMimeType: metadata?.fileMimeType,
+        verifiedAt: new Date().toISOString(),
+      },
+    });
+
+    await result.save();
 
     res.json({
       success: true,
-      resultId,
+      resultId: verificationId,
       message: 'Verification result stored successfully',
       storedAt: new Date().toISOString(),
     });
@@ -110,27 +129,19 @@ const getVerificationHistory = async (req, res) => {
   try {
     const { limit = 10, skip = 0 } = req.query;
 
-    // In a real app, fetch from database
-    const history = [
-      {
-        id: 'RESULT_1712984400000',
-        status: 'authentic',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        hash: 'sha256_abc123def456',
-        confidence: 99.7,
-      },
-      {
-        id: 'RESULT_1712980800000',
-        status: 'authentic',
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        hash: 'sha256_ghi789jkl012',
-        confidence: 98.5,
-      },
-    ];
+    const history = await VerificationResult.find()
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    const total = await VerificationResult.countDocuments();
 
     res.json({
       success: true,
-      history: history.slice(skip, skip + limit),
+      history,
+      total,
+      limit: parseInt(limit),
+      skip: parseInt(skip)e(skip, skip + limit),
       total: history.length,
       message: 'Verification history retrieved successfully',
     });

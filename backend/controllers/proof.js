@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const Proof = require('../models/Proof');
 const {
   generateHash,
   generateDeviceFingerprint,
@@ -56,8 +57,29 @@ const generateAuthenticityProof = async (req, res) => {
       light: 95.0,
     };
 
+    // Calculate overall confidence
+    const confidenceScores = Object.values(sensorConfidence).filter((c) => c > 0);
+    const overallConfidence =
+      confidenceScores.length > 0
+        ? confidenceScores.reduce((a, b) => a + b) / confidenceScores.length
+        : 0;
+
+    const proofId = `PROOF_${uuidv4()}`;
+
+    // Save proof to database
+    const proofDocument = new Proof({
+      proofId,
+      hash: proofHash,
+      sensorData,
+      metadata,
+      confidence: overallConfidence,
+      status: 'unverified',
+    });
+
+    await proofDocument.save();
+
     const proof = {
-      id: `PROOF_${uuidv4()}`,
+      id: proofId,
       hash: proofHash,
       deviceFingerprint,
       sensorValidation,
@@ -66,15 +88,7 @@ const generateAuthenticityProof = async (req, res) => {
       timestamp: new Date().toISOString(),
       deviceId: metadata.deviceId,
       capturedAt: metadata.capturedAt,
-      ttl: Date.now() + 24 * 60 * 60 * 1000, // 24 hours expiry
     };
-
-    // Calculate overall confidence
-    const confidenceScores = Object.values(sensorConfidence).filter((c) => c > 0);
-    const overallConfidence =
-      confidenceScores.length > 0
-        ? confidenceScores.reduce((a, b) => a + b) / confidenceScores.length
-        : 0;
 
     res.json({
       success: true,
@@ -106,11 +120,19 @@ const getProof = async (req, res) => {
       });
     }
 
-    // In a real app, fetch from database
+    const proof = await Proof.findOne({ proofId });
+
+    if (!proof) {
+      return res.status(404).json({
+        success: false,
+        message: 'Proof not found',
+      });
+    }
+
     res.json({
       success: true,
       message: 'Proof retrieved successfully',
-      proof: null, // TODO: Fetch from DB
+      proof,
     });
   } catch (error) {
     console.error('Error retrieving proof:', error);
