@@ -142,13 +142,6 @@ connectDatabase().then(() => {
 }).catch(err => {
   console.error('Failed to start server:', err.message);
 });
-  console.log('Endpoints:');
-  console.log('  POST /api/media/generate-proof');
-  console.log('  POST /api/media/verify');
-  console.log('  POST /api/verification/store');
-  console.log('  GET  /api/verification/history');
-  console.log('');
-});
 
 // Handle uncaught exceptions
 process.on('unhandledRejection', (reason, promise) => {

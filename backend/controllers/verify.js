@@ -141,8 +141,7 @@ const getVerificationHistory = async (req, res) => {
       history,
       total,
       limit: parseInt(limit),
-      skip: parseInt(skip)e(skip, skip + limit),
-      total: history.length,
+      skip: parseInt(skip),
       message: 'Verification history retrieved successfully',
     });
   } catch (error) {
