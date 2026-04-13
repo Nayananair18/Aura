@@ -1,8 +1,16 @@
 const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 const VerificationResult = require('../models/VerificationResult');
 const Proof = require('../models/Proof');
 const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
+
+/**
+ * Check if MongoDB is connected and ready for writes
+ */
+const isDbConnected = () => {
+  return mongoose.connection.readyState === 1;
+};
 
 /**
  * Verify media authenticity
@@ -86,29 +94,40 @@ const storeVerificationResult = async (req, res) => {
         message: 'Missing required fields: mediaHash, verificationResult',
       });
     }
-const verificationId = `RESULT_${uuidv4()}`;
 
-    // Save to database
-    const result = new VerificationResult({
-      verificationId,
-      proofId: verificationResult.verificationId,
-      fileHash: mediaHash,
-      hashValidation: verificationResult.hashValidation,
-      status: verificationResult.status,
-      confidence: verificationResult.confidence,
-      metadata: {
-        fileName: metadata?.fileName,
-        fileSize: metadata?.fileSize,
-        fileMimeType: metadata?.fileMimeType,
-        verifiedAt: new Date().toISOString(),
-      },
-    });
+    const verificationId = `RESULT_${uuidv4()}`;
 
-    await result.save();
+    // Save to database only if MongoDB is connected
+    let persistedToDb = false;
+    if (isDbConnected()) {
+      try {
+        const result = new VerificationResult({
+          verificationId,
+          proofId: verificationResult.verificationId,
+          fileHash: mediaHash,
+          hashValidation: verificationResult.hashValidation,
+          status: verificationResult.status,
+          confidence: verificationResult.confidence,
+          metadata: {
+            fileName: metadata?.fileName,
+            fileSize: metadata?.fileSize,
+            fileMimeType: metadata?.fileMimeType,
+            verifiedAt: new Date().toISOString(),
+          },
+        });
+        await result.save();
+        persistedToDb = true;
+      } catch (dbError) {
+        console.warn('Could not persist verification result to DB:', dbError.message);
+      }
+    } else {
+      console.warn('MongoDB not connected — verification result stored in-memory only');
+    }
 
     res.json({
       success: true,
       resultId: verificationId,
+      persistedToDb,
       message: 'Verification result stored successfully',
       storedAt: new Date().toISOString(),
     });
@@ -127,6 +146,16 @@ const verificationId = `RESULT_${uuidv4()}`;
  */
 const getVerificationHistory = async (req, res) => {
   try {
+    if (!isDbConnected()) {
+      // Return empty history when DB is not available
+      return res.json({
+        success: true,
+        history: [],
+        total: 0,
+        message: 'Database not connected. No history available.',
+      });
+    }
+
     const { limit = 10, skip = 0 } = req.query;
 
     const history = await VerificationResult.find()

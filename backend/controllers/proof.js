@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 const Proof = require('../models/Proof');
 const {
   generateHash,
@@ -6,6 +7,13 @@ const {
   validateSensorData,
   calculateSensorStats,
 } = require('../utils/crypto');
+
+/**
+ * Check if MongoDB is connected and ready for writes
+ */
+const isDbConnected = () => {
+  return mongoose.connection.readyState === 1;
+};
 
 /**
  * Generate authenticity proof
@@ -66,17 +74,26 @@ const generateAuthenticityProof = async (req, res) => {
 
     const proofId = `PROOF_${uuidv4()}`;
 
-    // Save proof to database
-    const proofDocument = new Proof({
-      proofId,
-      hash: proofHash,
-      sensorData,
-      metadata,
-      confidence: overallConfidence,
-      status: 'unverified',
-    });
-
-    await proofDocument.save();
+    // Save proof to database only if MongoDB is connected
+    let persistedToDb = false;
+    if (isDbConnected()) {
+      try {
+        const proofDocument = new Proof({
+          proofId,
+          hash: proofHash,
+          sensorData,
+          metadata,
+          confidence: overallConfidence,
+          status: 'unverified',
+        });
+        await proofDocument.save();
+        persistedToDb = true;
+      } catch (dbError) {
+        console.warn('Could not persist proof to DB (continuing without persistence):', dbError.message);
+      }
+    } else {
+      console.warn('MongoDB not connected — proof generated in-memory only');
+    }
 
     const proof = {
       id: proofId,
@@ -94,6 +111,7 @@ const generateAuthenticityProof = async (req, res) => {
       success: true,
       proof,
       overallConfidence: overallConfidence.toFixed(1),
+      persistedToDb,
       message: 'Authenticity proof generated successfully',
     });
   } catch (error) {
@@ -117,6 +135,13 @@ const getProof = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Proof ID is required',
+      });
+    }
+
+    if (!isDbConnected()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not available. Cannot retrieve stored proofs.',
       });
     }
 

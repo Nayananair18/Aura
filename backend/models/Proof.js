@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+// Schema for individual sensor readings ({x, y, z, timestamp})
+const SensorReadingSchema = new mongoose.Schema({
+  x: Number,
+  y: Number,
+  z: Number,
+  timestamp: Number,
+}, { _id: false });
+
 const ProofSchema = new mongoose.Schema(
   {
     proofId: {
@@ -14,18 +22,12 @@ const ProofSchema = new mongoose.Schema(
       index: true,
     },
     sensorData: {
-      accelerometer: [Number],
-      gyroscope: [Number],
-      magnetometer: [Number],
+      accelerometer: [SensorReadingSchema],
+      gyroscope: [SensorReadingSchema],
+      magnetometer: [SensorReadingSchema],
     },
     metadata: {
-      deviceId: String,
-      timestamp: String,
-      capturedAt: Number,
-      location: {
-        latitude: Number,
-        longitude: Number,
-      },
+      type: mongoose.Schema.Types.Mixed,
     },
     confidence: {
       type: Number,
