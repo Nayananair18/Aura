@@ -6,23 +6,20 @@ const {
   generateDeviceFingerprint,
   validateSensorData,
   calculateSensorStats,
+  calculateLightStats,
+  analyzeSensorIntegrity,
 } = require('../utils/crypto');
 
-/**
- * Check if MongoDB is connected and ready for writes
- */
-const isDbConnected = () => {
-  return mongoose.connection.readyState === 1;
-};
+const isDbConnected = () => mongoose.connection.readyState === 1;
 
 /**
- * Generate authenticity proof
+ * Generate authenticity proof from all 6 sensor sources
  */
 const generateAuthenticityProof = async (req, res) => {
   try {
     const { mediaData, sensorData, metadata } = req.body;
 
-    // Validate sensor data
+    // Validate all 6 sensor types
     const sensorValidation = validateSensorData(sensorData);
     const validSensors = Object.values(sensorValidation).filter(Boolean).length;
 
@@ -33,7 +30,7 @@ const generateAuthenticityProof = async (req, res) => {
       });
     }
 
-    // Calculate sensor statistics
+    // Calculate statistics for each sensor type
     const sensorStats = {
       accelerometer: sensorData.accelerometer
         ? calculateSensorStats(sensorData.accelerometer)
@@ -44,12 +41,20 @@ const generateAuthenticityProof = async (req, res) => {
       magnetometer: sensorData.magnetometer
         ? calculateSensorStats(sensorData.magnetometer)
         : null,
+      light: sensorData.light
+        ? calculateLightStats(sensorData.light)
+        : null,
+      location: sensorData.location || null,
+      timestamp: sensorData.timestamp || null,
     };
+
+    // Run tamper detection analysis
+    const integrityAnalysis = analyzeSensorIntegrity(sensorData);
 
     // Generate device fingerprint
     const deviceFingerprint = generateDeviceFingerprint(metadata);
 
-    // Generate proof hash
+    // Generate proof hash (includes ALL sensor data)
     const proofData = {
       sensorData,
       metadata,
@@ -57,24 +62,26 @@ const generateAuthenticityProof = async (req, res) => {
     };
     const proofHash = generateHash(proofData);
 
-    // Generate sensor confidence scores
+    // Generate per-sensor confidence scores
     const sensorConfidence = {
+      light: sensorValidation.light ? 95.0 : 0,
       accelerometer: sensorValidation.accelerometer ? 98.5 : 0,
       gyroscope: sensorValidation.gyroscope ? 97.2 : 0,
       magnetometer: sensorValidation.magnetometer ? 96.8 : 0,
-      light: 95.0,
+      location: sensorValidation.location ? 94.0 : 0,
+      timestamp: sensorValidation.timestamp ? 99.0 : 0,
     };
 
     // Calculate overall confidence
-    const confidenceScores = Object.values(sensorConfidence).filter((c) => c > 0);
+    const activeScores = Object.values(sensorConfidence).filter((c) => c > 0);
     const overallConfidence =
-      confidenceScores.length > 0
-        ? confidenceScores.reduce((a, b) => a + b) / confidenceScores.length
+      activeScores.length > 0
+        ? activeScores.reduce((a, b) => a + b) / activeScores.length
         : 0;
 
     const proofId = `PROOF_${uuidv4()}`;
 
-    // Save proof to database only if MongoDB is connected
+    // Persist to MongoDB if available
     let persistedToDb = false;
     if (isDbConnected()) {
       try {
@@ -84,15 +91,14 @@ const generateAuthenticityProof = async (req, res) => {
           sensorData,
           metadata,
           confidence: overallConfidence,
+          integrityScore: integrityAnalysis.overallScore,
           status: 'unverified',
         });
         await proofDocument.save();
         persistedToDb = true;
       } catch (dbError) {
-        console.warn('Could not persist proof to DB (continuing without persistence):', dbError.message);
+        console.warn('DB save skipped:', dbError.message);
       }
-    } else {
-      console.warn('MongoDB not connected — proof generated in-memory only');
     }
 
     const proof = {
@@ -102,6 +108,9 @@ const generateAuthenticityProof = async (req, res) => {
       sensorValidation,
       sensorStats,
       sensorConfidence,
+      integrityAnalysis,
+      sensorsUsed: validSensors,
+      totalSensors: 6,
       timestamp: new Date().toISOString(),
       deviceId: metadata.deviceId,
       capturedAt: metadata.capturedAt,
@@ -111,8 +120,9 @@ const generateAuthenticityProof = async (req, res) => {
       success: true,
       proof,
       overallConfidence: overallConfidence.toFixed(1),
+      integrityScore: integrityAnalysis.overallScore,
       persistedToDb,
-      message: 'Authenticity proof generated successfully',
+      message: `Proof generated using ${validSensors}/6 sensors`,
     });
   } catch (error) {
     console.error('Error generating proof:', error);
@@ -141,7 +151,7 @@ const getProof = async (req, res) => {
     if (!isDbConnected()) {
       return res.status(503).json({
         success: false,
-        message: 'Database not available. Cannot retrieve stored proofs.',
+        message: 'Database not available.',
       });
     }
 
