@@ -75,6 +75,9 @@ const ProofSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    imageData: {
+      type: String, // Base64 string of the watermarked image
+    },
   },
   { timestamps: true }
 );

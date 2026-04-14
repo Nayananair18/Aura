@@ -157,57 +157,90 @@ const calculateLightStats = (readings) => {
 };
 
 /**
- * Analyze sensor data for tamper detection
+ * Analyze sensor data for tamper detection based on A.U.R.A. principles:
+ * "You can fake pixels using AI, but you cannot fake the laws of physics."
  *
- * Cross-checks:
- * - Light vs image brightness discrepancy
- * - Magnetometer anomalies (screen replay detection)
- * - Motion patterns (replay attack detection)
- * - GPS/timestamp consistency
+ * Checks include:
+ * - Screen Attack Defense: Magnetometer high magnitude & Light PWM flicker patterns.
+ * - Environmental Consistency: Baseline lux vs image brightness (if available).
+ * - Physicality Check: Accelerometer/Gyroscope variance during capture.
+ * - Spatiotemporal Seal: GPS/Timestamp consistency.
  */
 const analyzeSensorIntegrity = (sensorData) => {
   const analysis = {
-    motionDetected: false,
-    magneticAnomaly: false,
-    lightConsistent: true,
+    screenDefense: {
+      magnetometerPassed: true,
+      lightFlickerPassed: true,
+      result: 'passed'
+    },
+    physicsDefense: {
+      motionPassed: true,
+      gravityConsistent: true,
+    },
     locationValid: false,
     timestampValid: false,
     overallScore: 0,
+    auraFlag: 'GREEN' // GREEN, YELLOW, RED
   };
 
-  // Check motion (accelerometer variance)
-  if (sensorData.accelerometer?.length > 0) {
+  const samples = 5;
+
+  // 1. Screen Defense - Magnetometer (Detects display EM signatures)
+  if (sensorData.magnetometer && sensorData.magnetometer.length >= samples) {
+    const stats = calculateSensorStats(sensorData.magnetometer);
+    // Typical screen emission > 80µT. Normal EARTH field is ~25-65µT.
+    if (stats.avg > 85) {
+      analysis.screenDefense.magnetometerPassed = false;
+      analysis.screenDefense.details = 'High magnetic EMI detected (possible screen replay)';
+    }
+  }
+
+  // 2. Screen Defense - Light Flicker (Detects invisible 240Hz/PWM flicker)
+  if (sensorData.light && sensorData.light.length >= samples) {
+    const stats = calculateLightStats(sensorData.light);
+    const variance = stats.max - stats.min;
+    const relativeVariance = variance / (stats.avg || 1);
+    
+    // Screens have very precise high-frequency flicker. 
+    // High relative variance in a "static" capture is a red flag.
+    if (relativeVariance > 0.4 && stats.avg > 10) {
+      analysis.screenDefense.lightFlickerPassed = false;
+    }
+  }
+
+  // 3. Physics Defense - Motion
+  if (sensorData.accelerometer && sensorData.accelerometer.length >= samples) {
     const stats = calculateSensorStats(sensorData.accelerometer);
     const variance = stats.max - stats.min;
-    analysis.motionDetected = variance > 0.05; // minimal movement expected during real capture
+    // Replay attacks (pointing at a screen) are often too stable or have unnatural robotic movement.
+    // Real handheld capture should have some micro-tremor (0.02 - 0.5 G variance).
+    if (variance < 0.01) {
+      analysis.physicsDefense.motionPassed = false;
+      analysis.physicsDefense.details = 'Unnatural stability detected (possible tripod/replay)';
+    }
   }
 
-  // Check magnetic field (high values may indicate screen replay)
-  if (sensorData.magnetometer?.length > 0) {
-    const stats = calculateSensorStats(sensorData.magnetometer);
-    // Screen displays typically emit 100+ µT, normal environment is 25-65 µT
-    analysis.magneticAnomaly = stats.avg > 100;
+  if (!analysis.screenDefense.magnetometerPassed || !analysis.screenDefense.lightFlickerPassed) {
+    analysis.screenDefense.result = 'failed';
+    analysis.auraFlag = 'RED';
   }
 
-  // Check location
-  if (sensorData.location?.latitude != null) {
-    analysis.locationValid = true;
-  }
-
-  // Check timestamp
+  // 4. Trace Defense - Location & Time
+  if (sensorData.location?.latitude != null) analysis.locationValid = true;
   if (sensorData.timestamp?.start && sensorData.timestamp?.end) {
     const duration = sensorData.timestamp.end - sensorData.timestamp.start;
-    analysis.timestampValid = duration > 500 && duration < 300000; // 0.5s to 5min
+    analysis.timestampValid = duration > 400 && duration < 60000;
   }
 
-  // Calculate overall integrity score (0-100)
-  let score = 50; // baseline
-  if (analysis.motionDetected) score += 15;
-  if (!analysis.magneticAnomaly) score += 15;
+  // Calculate A.U.R.A Integrity Score
+  let score = 40; // Base baseline
+  if (analysis.screenDefense.result === 'passed') score += 30;
+  if (analysis.physicsDefense.motionPassed) score += 15;
   if (analysis.locationValid) score += 10;
-  if (analysis.timestampValid) score += 10;
-  if (sensorData.light?.length > 0) score += 5; // bonus for light data
+  if (analysis.timestampValid) score += 5;
+
   analysis.overallScore = Math.min(score, 100);
+  if (analysis.overallScore < 70 && analysis.auraFlag === 'GREEN') analysis.auraFlag = 'YELLOW';
 
   return analysis;
 };

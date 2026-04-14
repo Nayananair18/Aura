@@ -92,7 +92,8 @@ const generateAuthenticityProof = async (req, res) => {
           metadata,
           confidence: overallConfidence,
           integrityScore: integrityAnalysis.overallScore,
-          status: 'unverified',
+          status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
+          imageData: mediaData,
         });
         await proofDocument.save();
         persistedToDb = true;
