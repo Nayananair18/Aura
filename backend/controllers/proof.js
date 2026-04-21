@@ -8,7 +8,12 @@ const {
   calculateSensorStats,
   calculateLightStats,
   analyzeSensorIntegrity,
+  watermarkImage,
 } = require('../utils/crypto');
+const logger = require('../utils/logger');
+
+// Max base64 image size: ~8MB (covers a full 6MP JPEG at quality 95)
+const MAX_MEDIA_SIZE_BYTES = 8 * 1024 * 1024;
 
 const isDbConnected = () => mongoose.connection.readyState === 1;
 
@@ -80,25 +85,54 @@ const generateAuthenticityProof = async (req, res) => {
         : 0;
 
     const proofId = `PROOF_${uuidv4()}`;
+    logger.info(`Processing proof ${proofId} (Finalized: ${metadata.isFinalized || false})`);
+
+    // Guard: reject oversized base64 payloads before they hit sharp (OOM protection)
+    if (mediaData && Buffer.byteLength(mediaData, 'base64') > MAX_MEDIA_SIZE_BYTES) {
+      return res.status(413).json({
+        success: false,
+        message: `Media data exceeds maximum size of ${MAX_MEDIA_SIZE_BYTES / (1024 * 1024)}MB`,
+      });
+    }
+
+    // Add server-side watermark if authentic
+    let watermarkedImage = mediaData;
+    if (integrityAnalysis.auraFlag === 'GREEN' && mediaData && mediaData.length > 100) {
+      logger.info('Authenticity verified. Applying A.U.R.A. Certified Seal...');
+      watermarkedImage = await watermarkImage(mediaData);
+    }
 
     // Persist to MongoDB if available
     let persistedToDb = false;
     if (isDbConnected()) {
       try {
-        const proofDocument = new Proof({
-          proofId,
-          hash: proofHash,
-          sensorData,
-          metadata,
-          confidence: overallConfidence,
-          integrityScore: integrityAnalysis.overallScore,
-          status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
-          imageData: mediaData,
-        });
-        await proofDocument.save();
-        persistedToDb = true;
+        if (metadata.isFinalized && metadata.proofId) {
+          await Proof.findOneAndUpdate(
+            { proofId: metadata.proofId },
+            {
+              imageData: watermarkedImage,
+              status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
+            }
+          );
+          persistedToDb = true;
+          logger.info(`Updated proof ${metadata.proofId} in database`);
+        } else {
+          const proofDocument = new Proof({
+            proofId,
+            hash: proofHash,
+            sensorData,
+            metadata,
+            confidence: overallConfidence,
+            integrityScore: integrityAnalysis.overallScore,
+            status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
+            imageData: watermarkedImage,
+          });
+          await proofDocument.save();
+          persistedToDb = true;
+          logger.info(`Saved new proof ${proofId} to database`);
+        }
       } catch (dbError) {
-        console.warn('DB save skipped:', dbError.message);
+        logger.warn(`DB save skipped: ${dbError.message}`);
       }
     }
 
@@ -107,6 +141,7 @@ const generateAuthenticityProof = async (req, res) => {
       hash: proofHash,
       deviceFingerprint,
       sensorValidation,
+      sensorValidationStatus: sensorConfidence >= 0.7 ? 'passed' : 'failed', // For legacy frontend check
       sensorStats,
       sensorConfidence,
       integrityAnalysis,
@@ -115,6 +150,7 @@ const generateAuthenticityProof = async (req, res) => {
       timestamp: new Date().toISOString(),
       deviceId: metadata.deviceId,
       capturedAt: metadata.capturedAt,
+      authenticatedImage: watermarkedImage, // Return the watermarked image to frontend
     };
 
     res.json({
@@ -122,11 +158,12 @@ const generateAuthenticityProof = async (req, res) => {
       proof,
       overallConfidence: overallConfidence.toFixed(1),
       integrityScore: integrityAnalysis.overallScore,
+      status: integrityAnalysis.auraFlag === 'RED' ? 'tampered' : (integrityAnalysis.auraFlag === 'YELLOW' || integrityAnalysis.overallScore < 75 ? 'suspicious' : 'authentic'),
       persistedToDb,
       message: `Proof generated using ${validSensors}/6 sensors`,
     });
   } catch (error) {
-    console.error('Error generating proof:', error);
+    logger.error(`Error generating proof: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to generate authenticity proof',
@@ -146,6 +183,14 @@ const getProof = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Proof ID is required',
+      });
+    }
+
+    // Sanitize: only allow alphanumeric and underscores to prevent injection
+    if (!/^[A-Za-z0-9_-]+$/.test(proofId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Proof ID format',
       });
     }
 
@@ -171,7 +216,7 @@ const getProof = async (req, res) => {
       proof,
     });
   } catch (error) {
-    console.error('Error retrieving proof:', error);
+    logger.error(`Error retrieving proof: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve proof',

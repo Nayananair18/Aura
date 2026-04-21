@@ -1,9 +1,14 @@
 const express = require('express');
+const os = require('os');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
 const bodyParser = require('body-parser');
+const morgan = require('morgan');
 const mongoose = require('mongoose');
 const config = require('./config/config');
+const logger = require('./utils/logger');
+const { globalLimiter } = require('./middleware/rateLimiter');
 
 // Import routes
 const mediaRoutes = require('./routes/media');
@@ -15,45 +20,43 @@ const app = express();
 
 const connectDatabase = async () => {
   try {
-    await mongoose.connect(config.mongodbUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log('✅ MongoDB connected successfully');
-    console.log(`Database: ${config.mongodbUri}`);
+    await mongoose.connect(config.mongodbUri);
+    logger.info('✅ MongoDB connected successfully');
+    logger.info(`Database: ${config.mongodbUri}`);
   } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
-    console.error('Using mock API mode without database persistence');
+    logger.error(`❌ MongoDB connection failed: ${error.message}`);
+    logger.warn('Running without database persistence (mock API mode)');
   }
 };
 
 // ==================== MIDDLEWARE ====================
 
-// Security
+// Compression (before other middleware)
+app.use(compression());
+
+// Security headers
 app.use(helmet());
 
-// CORS
+// CORS — credentials:true requires an explicit allowed origin list (never '*')
 app.use(cors({
-  origin: config.corsOrigin,
+  origin: config.debug ? config.corsOrigin : config.corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
+  credentials: !config.debug, // credentials only when we have explicit origins
+  optionsSuccessStatus: 200,
 }));
 
-// Body parsing
+// Body parsing — 10mb max to cover base64 images from mobile without OOM risk
 app.use(bodyParser.json({ limit: config.maxRequestSize }));
 app.use(bodyParser.urlencoded({ limit: config.maxRequestSize, extended: true }));
 
-// ==================== REQUEST LOGGING ====================
+// HTTP request logging (single logger using morgan + winston stream)
+app.use(morgan(config.debug ? 'dev' : 'combined', { stream: logger.stream }));
 
-app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${req.method} ${req.path}`);
-  next();
-});
+// Global rate limiter
+app.use('/api', globalLimiter);
 
 // ==================== ROUTES ====================
 
-// API Routes
 app.use('/api/media', mediaRoutes);
 app.use('/api/verification', verificationRoutes);
 
@@ -63,30 +66,41 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    environment: config.nodeEnv,
   });
 });
 
 // API Documentation
 app.get('/api', (req, res) => {
   res.json({
-    name: 'RealityProof API',
+    name: 'AURA API',
     version: '1.0.0',
-    description: 'Media Authenticity Verification Backend',
+    description: 'A.U.R.A. Media Authenticity Verification Backend',
     endpoints: {
       health: 'GET /health',
+      ping: 'GET /api/ping',
       generateProof: 'POST /api/media/generate-proof',
       verifyMedia: 'POST /api/media/verify',
       storeResult: 'POST /api/verification/store',
       getHistory: 'GET /api/verification/history',
     },
-    docs: 'http://localhost:3001/api/docs',
+  });
+});
+
+// Client connection heartbeat
+app.get('/api/ping', (req, res) => {
+  logger.debug(`Heartbeat received from: ${req.ip}`);
+  res.json({
+    status: 'connected',
+    timestamp: new Date().toISOString(),
+    serverTime: Date.now(),
   });
 });
 
 // Root route
 app.get('/', (req, res) => {
   res.json({
-    message: 'RealityProof API Server',
+    message: 'A.U.R.A. API Server',
     version: '1.0.0',
     status: 'running',
     docs: 'GET /api',
@@ -107,7 +121,7 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  logger.error(`Unhandled error: ${err.message}`, { stack: err.stack });
 
   const status = err.status || 500;
   const message = err.message || 'Internal Server Error';
@@ -115,7 +129,8 @@ app.use((err, req, res, next) => {
   res.status(status).json({
     success: false,
     message,
-    error: config.debug ? err : undefined,
+    // Only expose error details in development
+    error: config.debug ? { message: err.message, stack: err.stack } : undefined,
   });
 });
 
@@ -123,34 +138,77 @@ app.use((err, req, res, next) => {
 
 const PORT = config.port;
 
-// Connect to database before starting server
-connectDatabase().then(() => {
-  app.listen(PORT, () => {
-    console.log('');
-    console.log('╔════════════════════════════════════════════╗');
-    console.log('║     🛡️  RealityProof Backend Server      ║');
-    console.log('╚════════════════════════════════════════════╝');
-    console.log('');
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-    console.log(`📝 API Documentation: http://localhost:${PORT}/api`);
-    console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
-    console.log('');
-    console.log(`Environment: ${config.nodeEnv}`);
-    console.log(`CORS Origins: ${config.corsOrigin.join(', ')}`);
-    console.log('');
-  });
-}).catch(err => {
-  console.error('Failed to start server:', err.message);
-});
+const getLocalIP = () => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+};
 
-// Handle uncaught exceptions
+let server;
+
+const startServer = async () => {
+  await connectDatabase();
+
+  const localIP = getLocalIP();
+  server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info('');
+    logger.info('╔════════════════════════════════════════════╗');
+    logger.info('║      🛡️  A.U.R.A. Backend Server          ║');
+    logger.info('╚════════════════════════════════════════════╝');
+    logger.info(`✅ Server running on LAN: http://${localIP}:${PORT}`);
+    logger.info(`🏠 Local address: http://localhost:${PORT}`);
+    logger.info(`📝 API Documentation: http://${localIP}:${PORT}/api`);
+    logger.info(`🌍 Environment: ${config.nodeEnv}`);
+    logger.info(`🛡️  A.U.R.A. Defense Engine: ACTIVE`);
+  });
+};
+
+// ==================== GRACEFUL SHUTDOWN ====================
+
+const shutdown = (signal) => {
+  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+  if (server) {
+    server.close(async () => {
+      logger.info('HTTP server closed');
+      try {
+        await mongoose.connection.close();
+        logger.info('MongoDB connection closed');
+      } catch (err) {
+        logger.error('Error closing MongoDB connection:', err);
+      }
+      process.exit(0);
+    });
+
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  } else {
+    process.exit(0);
+  }
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// ==================== PROCESS ERROR GUARDS ====================
+
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  logger.error('Unhandled Rejection', { reason, promise });
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  logger.error('Uncaught Exception — shutting down', { error });
   process.exit(1);
 });
+
+startServer();
 
 module.exports = app;

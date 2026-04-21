@@ -4,12 +4,27 @@ const VerificationResult = require('../models/VerificationResult');
 const Proof = require('../models/Proof');
 const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
+const logger = require('../utils/logger');
 
 /**
  * Check if MongoDB is connected and ready for writes
  */
-const isDbConnected = () => {
-  return mongoose.connection.readyState === 1;
+const isDbConnected = () => mongoose.connection.readyState === 1;
+
+/**
+ * Calculate Hamming distance between two hex strings.
+ * Returns a deterministic confidence score (0–100) based on
+ * how similar the hash characters are — NO Math.random().
+ */
+const hammingConfidence = (hashA, hashB) => {
+  if (!hashA || !hashB) return 0;
+  // Pad or truncate to same length
+  const len = Math.min(hashA.length, hashB.length);
+  let matches = 0;
+  for (let i = 0; i < len; i++) {
+    if (hashA[i] === hashB[i]) matches++;
+  }
+  return parseFloat(((matches / len) * 100).toFixed(1));
 };
 
 /**
@@ -27,21 +42,17 @@ const verifyMedia = async (req, res) => {
       });
     }
 
-    // Compare hashes - EXACT match only
+    // Exact hash match
     const isExactMatch = fileHash === uploadedMediaHash;
 
-    // Determine status based on exact match
-    let status = 'authentic';
-    let confidence = 99.7;
-    let matchPercentage = 100;
+    // Deterministic confidence: 99.7 for exact match, Hamming-distance-based for mismatch
+    const matchPercentage = isExactMatch
+      ? 100
+      : hammingConfidence(fileHash, uploadedMediaHash);
 
-    if (!isExactMatch) {
-      status = 'tampered';
-      confidence = Math.floor(Math.random() * 40 + 10); // 10-50% confidence for tampered
-      matchPercentage = Math.floor(Math.random() * 30 + 10); // 10-40% match
-    }
+    const confidence = isExactMatch ? 99.7 : matchPercentage;
+    const status = isExactMatch ? 'authentic' : (confidence > 60 ? 'suspicious' : 'tampered');
 
-    // Generate verification result
     const verificationId = `VERIF_${uuidv4()}`;
     const verificationResult = {
       verificationId,
@@ -56,17 +67,17 @@ const verifyMedia = async (req, res) => {
       sensorValidation: isExactMatch ? 'passed' : 'failed',
       metadataConsistency: isExactMatch ? 'consistent' : 'inconsistent',
       timestamp: new Date().toISOString(),
-      auraFlag: isExactMatch ? 'GREEN' : 'RED',
+      auraFlag: isExactMatch ? 'GREEN' : (status === 'suspicious' ? 'YELLOW' : 'RED'),
       screenDefense: {
         result: isExactMatch ? 'passed' : 'failed',
         magnetometerPassed: isExactMatch,
         lightFlickerPassed: isExactMatch,
-        details: isExactMatch ? 'No display signatures found' : 'Potential digital grid detected'
+        details: isExactMatch ? 'No display signatures found' : 'Potential digital grid detected',
       },
       physicsDefense: {
         motionPassed: isExactMatch,
         gravityConsistent: isExactMatch,
-        details: isExactMatch ? 'Handheld signatures verified' : 'Mathematical inconsistency'
+        details: isExactMatch ? 'Handheld signatures verified' : 'Mathematical inconsistency',
       },
       fileInfo: {
         fileName: metadata.fileName,
@@ -76,15 +87,15 @@ const verifyMedia = async (req, res) => {
       },
     };
 
+    logger.info(`Verification complete: ${verificationId} — ${status} (confidence: ${confidence}%)`);
+
     res.json({
       success: true,
       verification: verificationResult,
-      message: isExactMatch
-        ? 'Media is authentic'
-        : 'Media shows signs of tampering',
+      message: isExactMatch ? 'Media is authentic' : 'Media shows signs of tampering',
     });
   } catch (error) {
-    console.error('Error verifying media:', error);
+    logger.error(`Error verifying media: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to verify media',
@@ -109,13 +120,13 @@ const storeVerificationResult = async (req, res) => {
 
     const verificationId = `RESULT_${uuidv4()}`;
 
-    // Save to database only if MongoDB is connected
     let persistedToDb = false;
     if (isDbConnected()) {
       try {
         const result = new VerificationResult({
           verificationId,
-          proofId: verificationResult.verificationId,
+          // proofId: use the verificationResult's own verificationId as the source reference
+          proofId: verificationResult.verificationId || verificationId,
           fileHash: mediaHash,
           hashValidation: verificationResult.hashValidation,
           status: verificationResult.status,
@@ -129,11 +140,12 @@ const storeVerificationResult = async (req, res) => {
         });
         await result.save();
         persistedToDb = true;
+        logger.info(`Stored verification result: ${verificationId}`);
       } catch (dbError) {
-        console.warn('Could not persist verification result to DB:', dbError.message);
+        logger.warn(`Could not persist verification result to DB: ${dbError.message}`);
       }
     } else {
-      console.warn('MongoDB not connected — verification result stored in-memory only');
+      logger.warn('MongoDB not connected — verification result not persisted');
     }
 
     res.json({
@@ -144,7 +156,7 @@ const storeVerificationResult = async (req, res) => {
       storedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error storing result:', error);
+    logger.error(`Error storing result: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to store verification result',
@@ -159,7 +171,6 @@ const storeVerificationResult = async (req, res) => {
 const getVerificationHistory = async (req, res) => {
   try {
     if (!isDbConnected()) {
-      // Return empty history when DB is not available
       return res.json({
         success: true,
         history: [],
@@ -168,25 +179,28 @@ const getVerificationHistory = async (req, res) => {
       });
     }
 
-    const { limit = 10, skip = 0 } = req.query;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100); // cap at 100
+    const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
 
-    const history = await VerificationResult.find()
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip));
-
-    const total = await VerificationResult.countDocuments();
+    const [history, total] = await Promise.all([
+      VerificationResult.find()
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .skip(skip)
+        .select('-__v'), // exclude Mongoose version key
+      VerificationResult.countDocuments(),
+    ]);
 
     res.json({
       success: true,
       history,
       total,
-      limit: parseInt(limit),
-      skip: parseInt(skip),
+      limit,
+      skip,
       message: 'Verification history retrieved successfully',
     });
   } catch (error) {
-    console.error('Error retrieving history:', error);
+    logger.error(`Error retrieving history: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve verification history',

@@ -5,6 +5,7 @@ const {
   validateVerifyMedia,
   handleValidationErrors,
 } = require('../middleware/validation');
+const { proofLimiter, verifyLimiter } = require('../middleware/rateLimiter');
 const { generateAuthenticityProof } = require('../controllers/proof');
 const { verifyMedia } = require('../controllers/verify');
 
@@ -14,6 +15,7 @@ const { verifyMedia } = require('../controllers/verify');
  */
 router.post(
   '/generate-proof',
+  proofLimiter,
   validateGenerateProof,
   handleValidationErrors,
   generateAuthenticityProof
@@ -25,9 +27,11 @@ router.post(
  */
 router.post(
   '/verify',
+  verifyLimiter,
   validateVerifyMedia,
   handleValidationErrors,
   verifyMedia
 );
 
 module.exports = router;
+

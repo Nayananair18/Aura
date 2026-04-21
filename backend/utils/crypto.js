@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const sharp = require('sharp');
 
 /**
  * Generate SHA256 hash
@@ -146,14 +147,36 @@ const calculateLightStats = (readings) => {
   }
 
   const values = readings.map((r) => r.lux || r.illuminance || 0);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = Math.max(...values) - Math.min(...values);
 
   return {
     count: readings.length,
     min: Math.min(...values),
     max: Math.max(...values),
-    avg: values.reduce((a, b) => a + b, 0) / values.length,
+    avg,
+    variance,
+    relativeVariance: variance / (avg || 1),
     latest: values[values.length - 1],
   };
+};
+
+/**
+ * Calculate sensor stats with variance and spread
+ */
+const calculateDetailedStats = (readings) => {
+  if (!Array.isArray(readings) || readings.length === 0) return null;
+  
+  const magnitudes = readings.map(r => 
+    r.magneticField || Math.sqrt((r.x||0)**2 + (r.y||0)**2 + (r.z||0)**2)
+  );
+  
+  const avg = magnitudes.reduce((a, b) => a + b, 0) / magnitudes.length;
+  const min = Math.min(...magnitudes);
+  const max = Math.max(...magnitudes);
+  const spread = max - min;
+  
+  return { avg, min, max, spread, count: readings.length };
 };
 
 /**
@@ -182,41 +205,74 @@ const analyzeSensorIntegrity = (sensorData) => {
     overallScore: 0,
     auraFlag: 'GREEN' // GREEN, YELLOW, RED
   };
+  
+  console.log('\n--- [A.U.R.A. FORENSIC ANALYSIS START] ---');
 
   const samples = 5;
 
   // 1. Screen Defense - Magnetometer (Detects display EM signatures)
   if (sensorData.magnetometer && sensorData.magnetometer.length >= samples) {
-    const stats = calculateSensorStats(sensorData.magnetometer);
-    // Typical screen emission > 80µT. Normal EARTH field is ~25-65µT.
-    if (stats.avg > 85) {
+    const stats = calculateDetailedStats(sensorData.magnetometer);
+    
+    // SMART THRESHOLDS: Adjust sensitivity based on environment
+    // 1. Motion Compensation: If the user is moving fast, magnetic jitter is natural.
+    const isMovingFast = sensorData.accelerometer && calculateDetailedStats(sensorData.accelerometer).spread > 0.8;
+    const magneticSpreadLimit = isMovingFast ? 15.0 : 8.5; // High motion allows more magnetic drift
+
+    const isOutofBounds = stats.avg < 12 || stats.avg > 80; 
+    const isNoisyField = stats.spread > magneticSpreadLimit; 
+    
+    if (isOutofBounds || isNoisyField) {
       analysis.screenDefense.magnetometerPassed = false;
-      analysis.screenDefense.details = 'High magnetic EMI detected (possible screen replay)';
+      analysis.screenDefense.details = isOutofBounds 
+        ? `Magnetic Anomaly (${stats.avg.toFixed(1)}µT)` 
+        : `Magnetic Interference (${stats.spread.toFixed(1)}µT jitter)`;
+      console.log(`[!] MAGNETOMETER FAILURE: Avg ${stats.avg.toFixed(2)}µT, Spread ${stats.spread.toFixed(2)}µT. (Threshold: ${magneticSpreadLimit})`);
+    } else {
+      console.log(`[✓] MAGNETOMETER PASS: Avg ${stats.avg.toFixed(2)}µT, Spread ${stats.spread.toFixed(2)}µT.`);
     }
   }
 
   // 2. Screen Defense - Light Flicker (Detects invisible 240Hz/PWM flicker)
   if (sensorData.light && sensorData.light.length >= samples) {
     const stats = calculateLightStats(sensorData.light);
-    const variance = stats.max - stats.min;
-    const relativeVariance = variance / (stats.avg || 1);
     
-    // Screens have very precise high-frequency flicker. 
-    // High relative variance in a "static" capture is a red flag.
-    if (relativeVariance > 0.4 && stats.avg > 10) {
+    // Balanced light stability check: 
+    // DARK ROOM EXCEPTION: In very low light (< 10 lux), sensor noise is high.
+    const isTooDarkForFlicker = stats.avg < 10;
+    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 0.35;
+    const isSuspiciouslyBright = stats.avg > 800;
+
+    if (isFlickering || isSuspiciouslyBright) {
       analysis.screenDefense.lightFlickerPassed = false;
+      analysis.screenDefense.details = isFlickering ? 'High-frequency flicker found' : 'Luminescent display signature';
+      console.log(`[!] LIGHT FAILURE: RelVar ${stats.relativeVariance.toFixed(2)}, Avg ${stats.avg.toFixed(1)} lux.`);
+    } else {
+      const reason = isTooDarkForFlicker ? '(Low-light compensation active)' : '';
+      console.log(`[✓] LIGHT PASS: Signal stability verified. ${reason}`);
     }
   }
 
   // 3. Physics Defense - Motion
   if (sensorData.accelerometer && sensorData.accelerometer.length >= samples) {
-    const stats = calculateSensorStats(sensorData.accelerometer);
-    const variance = stats.max - stats.min;
-    // Replay attacks (pointing at a screen) are often too stable or have unnatural robotic movement.
-    // Real handheld capture should have some micro-tremor (0.02 - 0.5 G variance).
-    if (variance < 0.01) {
+    const accStats = calculateDetailedStats(sensorData.accelerometer);
+    const gyroStats = calculateDetailedStats(sensorData.gyroscope || []);
+    
+    // Check for "Planar" movement. Real 3D reality has rotation + translation.
+    // Replay attacks often have translation but suspiciously low rotation (Planar).
+    const rotationToMotionRatio = gyroStats ? gyroStats.spread / (accStats.spread || 1) : 1;
+    const isPlanarMovement = rotationToMotionRatio < 0.05;
+
+    if (accStats.spread < 0.02) {
       analysis.physicsDefense.motionPassed = false;
-      analysis.physicsDefense.details = 'Unnatural stability detected (possible tripod/replay)';
+      analysis.physicsDefense.details = 'Artificial stillness (Tripod/Injection detected)';
+      console.log(`[!] PHYSICS FAILURE: Spread ${accStats.spread.toFixed(4)} is too low.`);
+    } else if (isPlanarMovement && accStats.spread > 0.1) {
+      analysis.physicsDefense.motionPassed = false;
+      analysis.physicsDefense.details = 'Planar movement detected (Possible screen re-capture)';
+      console.log(`[!] PHYSICS FAILURE: Gyro-Ratio ${rotationToMotionRatio.toFixed(4)} is too low. (2D Plane Signature)`);
+    } else {
+      console.log(`[✓] PHYSICS PASS: 3D rotational physics verified.`);
     }
   }
 
@@ -233,16 +289,70 @@ const analyzeSensorIntegrity = (sensorData) => {
   }
 
   // Calculate A.U.R.A Integrity Score
-  let score = 40; // Base baseline
-  if (analysis.screenDefense.result === 'passed') score += 30;
-  if (analysis.physicsDefense.motionPassed) score += 15;
-  if (analysis.locationValid) score += 10;
+  let score = 30; // Reduced base baseline
+  if (analysis.screenDefense.magnetometerPassed) score += 30;
+  if (analysis.screenDefense.lightFlickerPassed) score += 20;
+  if (analysis.physicsDefense.motionPassed) score += 10;
+  if (analysis.locationValid) score += 5;
   if (analysis.timestampValid) score += 5;
 
   analysis.overallScore = Math.min(score, 100);
-  if (analysis.overallScore < 70 && analysis.auraFlag === 'GREEN') analysis.auraFlag = 'YELLOW';
+  
+  // FAIL FAST: If any major defense is breached, force RED and tank the score
+  if (!analysis.screenDefense.magnetometerPassed || !analysis.screenDefense.lightFlickerPassed) {
+    analysis.auraFlag = 'RED';
+    analysis.overallScore = Math.min(analysis.overallScore, 45); // Hard cap for failures
+  } else if (!analysis.physicsDefense.motionPassed) {
+    analysis.auraFlag = 'YELLOW';
+    analysis.overallScore = Math.min(analysis.overallScore, 65);
+  }
+
+  console.log(`[=] FINAL A.U.R.A. SCORE: ${analysis.overallScore}/100`);
+  console.log(`[=] A.U.R.A. FLAG STATUS: ${analysis.auraFlag}`);
+  console.log('--- [A.U.R.A. FORENSIC ANALYSIS END] ---\n');
 
   return analysis;
+};
+
+/**
+ * Adds an "AURA AUTHENTIC" watermark using sharp.
+ */
+const watermarkImage = async (base64Image) => {
+  try {
+    if (!base64Image) return null;
+    
+    // Convert base64 to buffer
+    const imgBuffer = Buffer.from(base64Image, 'base64');
+    
+    // Create a high-visibility SVG overlay (Lower Third / Glassmorphism Bar)
+    const svgOverlay = Buffer.from(`
+      <svg width="1080" height="120">
+        <rect x="0" y="0" width="1080" height="120" fill="rgba(0,0,0,0.6)" />
+        <rect x="0" y="0" width="10" height="120" fill="#00FF9D" />
+        <text x="540" y="75" font-family="sans-serif" font-size="44" font-weight="bold" fill="#00FF9D" text-anchor="middle">
+          🛡️ A.U.R.A. CERTIFIED AUTHENTIC
+        </text>
+        <text x="1050" y="100" font-family="sans-serif" font-size="18" fill="white" text-anchor="end">
+          REALITY-PROVEN DATA
+        </text>
+      </svg>
+    `);
+
+    // Process image with sharp
+    const processedBuffer = await sharp(imgBuffer)
+      .resize(1080) // Standardize width
+      .composite([{
+        input: svgOverlay,
+        gravity: 'south',
+      }])
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    return processedBuffer.toString('base64');
+  } catch (error) {
+    console.error('[!] Watermarking Failed:', error.message);
+    return base64Image; // Fallback to original
+  }
 };
 
 module.exports = {
@@ -252,5 +362,8 @@ module.exports = {
   validateSensorData,
   calculateSensorStats,
   calculateLightStats,
+  calculateDetailedStats,
   analyzeSensorIntegrity,
+  watermarkImage,
 };
+
