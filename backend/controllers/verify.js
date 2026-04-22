@@ -243,10 +243,16 @@ const analyzeMetadata = async (req, res) => {
       `(AI: ${result.aiProbability}%, confidence: ${result.confidence}%)`
     );
 
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // Strip raw EXIF fingerprint in production — it can contain GPS, device paths etc.
+    const { metadataFingerprint, ...safeResult } = result;
+    const responseAnalysis = isProd ? safeResult : result;
+
     res.json({
       success: true,
       analysis: {
-        ...result,
+        ...responseAnalysis,
         fileName: fileName || 'unknown',
         fileType: fileType || 'unknown',
       },

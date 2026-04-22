@@ -36,13 +36,11 @@ router.post(
 
 /**
  * POST /api/media/analyze-metadata
- * ML-powered metadata analysis: AI-generated vs real camera
- * Uses its own 20mb JSON body limit (base64 images can be ~13MB)
- * and its own tighter rate limiter.
+ * ML-powered KNN metadata analysis: AI-generated vs real camera
+ * Body limit is controlled globally via MAX_REQUEST_SIZE env var (default 20mb).
  */
 router.post(
   '/analyze-metadata',
-  express.json({ limit: '20mb' }),   // route-level override — larger than global 10mb
   mlLimiter,
   validateAnalyzeMetadata,
   handleValidationErrors,
@@ -50,4 +48,3 @@ router.post(
 );
 
 module.exports = router;
-

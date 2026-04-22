@@ -1,5 +1,7 @@
 const express = require('express');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
@@ -9,6 +11,12 @@ const mongoose = require('mongoose');
 const config = require('./config/config');
 const logger = require('./utils/logger');
 const { globalLimiter } = require('./middleware/rateLimiter');
+
+// Ensure logs/ directory exists (required by Winston file transports in production)
+const logsDir = path.join(__dirname, '../logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
 
 // Import routes
 const mediaRoutes = require('./routes/media');

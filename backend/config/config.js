@@ -9,9 +9,9 @@ module.exports = {
   corsOrigin: process.env.CORS_ORIGIN?.split(',').map(o => o.trim()) || ['http://localhost:8082', 'http://localhost:8081'],
   logLevel: process.env.LOG_LEVEL || (isProd ? 'info' : 'debug'),
 
-  // Server settings — 10mb covers any real mobile image (typically <3MB base64)
+  // Server settings — 20mb covers base64-encoded images from mobile (10MB JPEG ≈ 13.3MB base64)
   requestTimeout: 30000,
-  maxRequestSize: process.env.MAX_REQUEST_SIZE || '10mb',
+  maxRequestSize: process.env.MAX_REQUEST_SIZE || '20mb',
 
   // Rate limiting
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 min
