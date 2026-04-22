@@ -47,4 +47,14 @@ const verifyLimiter = createLimiter(
   'Too many verification requests. Please wait 5 minutes before trying again.'
 );
 
-module.exports = { globalLimiter, proofLimiter, verifyLimiter };
+/**
+ * ML metadata analysis limiter — heavier computation than normal verify
+ * 10 requests per 5 minutes per IP
+ */
+const mlLimiter = createLimiter(
+  5 * 60 * 1000,
+  10,
+  'Too many ML analysis requests. Please wait 5 minutes before trying again.'
+);
+
+module.exports = { globalLimiter, proofLimiter, verifyLimiter, mlLimiter };

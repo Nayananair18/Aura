@@ -5,6 +5,7 @@ const Proof = require('../models/Proof');
 const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
 const logger = require('../utils/logger');
+const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
 
 /**
  * Check if MongoDB is connected and ready for writes
@@ -209,8 +210,61 @@ const getVerificationHistory = async (req, res) => {
   }
 };
 
+/**
+ * Analyze image metadata using ML scoring model
+ * POST /api/media/analyze-metadata
+ */
+const analyzeMetadata = async (req, res) => {
+  try {
+    const { image, fileName, fileType } = req.body;
+
+    if (!image) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: image (base64 string)',
+      });
+    }
+
+    // Check rough size — base64 of 10MB image ≈ 14MB string
+    if (typeof image === 'string' && image.length > 20_000_000) {
+      return res.status(413).json({
+        success: false,
+        message: 'Image too large for metadata analysis (max ~15MB)',
+      });
+    }
+
+    logger.info(`[ML] Starting metadata analysis${fileName ? ` for: ${fileName}` : ''}`);
+
+    const buffer = toBuffer(image);
+    const result = await analyzeImageMetadata(buffer);
+
+    logger.info(
+      `[ML] Analysis complete — classification: ${result.classification} ` +
+      `(AI: ${result.aiProbability}%, confidence: ${result.confidence}%)`
+    );
+
+    res.json({
+      success: true,
+      analysis: {
+        ...result,
+        fileName: fileName || 'unknown',
+        fileType: fileType || 'unknown',
+      },
+      message: `Image classified as ${result.classification} with ${result.confidence}% confidence`,
+    });
+  } catch (error) {
+    logger.error(`[ML] Metadata analysis error: ${error.message}`, { stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Metadata analysis failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 module.exports = {
   verifyMedia,
   storeVerificationResult,
   getVerificationHistory,
+  analyzeMetadata,
 };

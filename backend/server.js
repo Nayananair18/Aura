@@ -81,6 +81,7 @@ app.get('/api', (req, res) => {
       ping: 'GET /api/ping',
       generateProof: 'POST /api/media/generate-proof',
       verifyMedia: 'POST /api/media/verify',
+      analyzeMetadata: 'POST /api/media/analyze-metadata',
       storeResult: 'POST /api/verification/store',
       getHistory: 'GET /api/verification/history',
     },

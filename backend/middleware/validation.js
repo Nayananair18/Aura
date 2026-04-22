@@ -37,6 +37,17 @@ const validateStoreResult = [
 ];
 
 /**
+ * Validate ML metadata analysis request
+ */
+const validateAnalyzeMetadata = [
+  body('image')
+    .notEmpty().withMessage('image is required')
+    .isString().withMessage('image must be a base64 string'),
+  body('fileName').optional().isString().trim(),
+  body('fileType').optional().isString().trim(),
+];
+
+/**
  * Handle validation errors
  */
 const handleValidationErrors = (req, res, next) => {
@@ -54,5 +65,6 @@ module.exports = {
   validateGenerateProof,
   validateVerifyMedia,
   validateStoreResult,
+  validateAnalyzeMetadata,
   handleValidationErrors,
 };
