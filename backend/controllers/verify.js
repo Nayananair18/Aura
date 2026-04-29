@@ -52,7 +52,23 @@ const verifyMedia = async (req, res) => {
       : hammingConfidence(fileHash, uploadedMediaHash);
 
     const confidence = isExactMatch ? 99.7 : matchPercentage;
-    const status = isExactMatch ? 'authentic' : (confidence > 60 ? 'suspicious' : 'tampered');
+
+    // Determine whether we have any sensor evidence in the request metadata.
+    // Frontend may not always include sensor samples when performing a lightweight verify.
+    const hasSensorEvidence = metadata && (metadata.sensorData || metadata.sensorStats || metadata.sensorSamples);
+
+    // Conservative status: if we have sensor evidence and confidence is low => tampered.
+    // If no sensor evidence, prefer 'suspicious' over immediately labeling as 'tampered'.
+    let status;
+    if (isExactMatch) {
+      status = 'authentic';
+    } else if (confidence > 60) {
+      status = 'suspicious';
+    } else if (hasSensorEvidence) {
+      status = 'tampered';
+    } else {
+      status = 'suspicious';
+    }
 
     const verificationId = `VERIF_${uuidv4()}`;
     const verificationResult = {
@@ -65,20 +81,20 @@ const verifyMedia = async (req, res) => {
         uploadedHash: uploadedMediaHash.substring(0, 16) + '...',
         storedHash: fileHash.substring(0, 16) + '...',
       },
-      sensorValidation: isExactMatch ? 'passed' : 'failed',
-      metadataConsistency: isExactMatch ? 'consistent' : 'inconsistent',
+      sensorValidation: isExactMatch ? 'passed' : (hasSensorEvidence ? 'failed' : 'unknown'),
+      metadataConsistency: isExactMatch ? 'consistent' : (metadata ? 'unknown' : 'unknown'),
       timestamp: new Date().toISOString(),
       auraFlag: isExactMatch ? 'GREEN' : (status === 'suspicious' ? 'YELLOW' : 'RED'),
       screenDefense: {
-        result: isExactMatch ? 'passed' : 'failed',
-        magnetometerPassed: isExactMatch,
-        lightFlickerPassed: isExactMatch,
-        details: isExactMatch ? 'No display signatures found' : 'Potential digital grid detected',
+        result: isExactMatch ? 'passed' : (hasSensorEvidence ? 'failed' : 'unknown'),
+        magnetometerPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.magnetometer || metadata?.sensorData?.magnetometer) : null,
+        lightFlickerPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.light || metadata?.sensorData?.light) : null,
+        details: isExactMatch ? 'No display signatures found' : (hasSensorEvidence ? 'Potential digital grid detected' : 'Not evaluated'),
       },
       physicsDefense: {
-        motionPassed: isExactMatch,
-        gravityConsistent: isExactMatch,
-        details: isExactMatch ? 'Handheld signatures verified' : 'Mathematical inconsistency',
+        motionPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.accelerometer || metadata?.sensorData?.accelerometer) : null,
+        gravityConsistent: hasSensorEvidence ? true : null,
+        details: isExactMatch ? 'Handheld signatures verified' : (hasSensorEvidence ? 'Mathematical inconsistency' : 'Not evaluated'),
       },
       fileInfo: {
         fileName: metadata.fileName,

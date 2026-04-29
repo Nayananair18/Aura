@@ -141,7 +141,7 @@ const generateAuthenticityProof = async (req, res) => {
       hash: proofHash,
       deviceFingerprint,
       sensorValidation,
-      sensorValidationStatus: sensorConfidence >= 0.7 ? 'passed' : 'failed', // For legacy frontend check
+      sensorValidationStatus: overallConfidence >= 70 ? 'passed' : 'failed', // For legacy frontend check
       sensorStats,
       sensorConfidence,
       integrityAnalysis,
