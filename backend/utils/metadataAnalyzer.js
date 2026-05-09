@@ -1,25 +1,18 @@
 /**
- * AURA Metadata Forensics — KNN ML Engine
+ * AURA Metadata Forensics — Dual-Model ML Engine
  *
  * Classifies an image as AI-generated or real-camera capture using:
- *  1. EXIF feature extraction (13-dimensional feature vector)
- *  2. k-Nearest Neighbours classification (k=5, Euclidean distance)
- *  3. Weighted signal report for UI display
- *
- * KNN reference: identical algorithm to the Python implementation —
- *   distances = |x_train - x_test_point|
- *   k_nearest = argsort(distances)[:k]
- *   predicted  = bincount(y_train[k_nearest]).argmax()
- *
- * Classification bands (from KNN vote ratio):
- *   AI vote% >= 70  => AI_GENERATED
- *   AI vote% <= 35  => REAL_CAMERA
- *   otherwise       => UNCERTAIN
+ *  1. EXIF/KNN model  — 13-dim metadata feature vector, k=5 KNN
+ *  2. Visual ML model — pixel-level CNN-inspired logistic regression
+ *     (noise energy, block variance, edge density, chromatic aberration…)
+ *  3. Ensemble fusion — weighted combination of both model probabilities
+ *  4. Weighted signal report for UI display
  */
 
 'use strict';
 
 const sharp = require('sharp');
+const { analyzeVisualFeatures } = require('./visualMLAnalyzer');
 
 // ══════════════════════════════════════════════════════════════════
 //  KNN TRAINING DATA
@@ -412,7 +405,9 @@ const parseExifFromBuffer = (buf) => {
 // ══════════════════════════════════════════════════════════════════
 
 /**
- * Analyze image metadata with KNN classification.
+ * Analyze image with dual-model ensemble:
+ *   Model A — KNN on EXIF metadata (weight: 0.45)
+ *   Model B — Visual pixel CNN features (weight: 0.55)
  *
  * @param {Buffer} imageBuffer
  * @returns {Promise<AnalysisResult>}
@@ -436,33 +431,51 @@ const analyzeImageMetadata = async (imageBuffer) => {
   const exifMeta = parseExifFromBuffer(imageBuffer);
   const metadataFingerprint = { ...sharpStats, ...exifMeta };
 
-  // ── 3. Build 13-dim feature vector ──
+  // ── 3. Model A: KNN on metadata ──
   const featureVector = buildFeatureVector(metadataFingerprint, sharpStats);
-
-  // ── 4. KNN classification ──
   const trainFeatures = TRAINING_DATA.map((d) => d.f);
   const trainLabels   = TRAINING_DATA.map((d) => d.l);
-  const { predictedClass, aiVoteRatio, bincount, kNearestIndices } =
+  const { aiVoteRatio, bincount, kNearestIndices } =
     knnClassify(featureVector, trainFeatures, trainLabels, K);
+  const knnAiProb = aiVoteRatio * 100; // 0–100
 
-  const aiProbability   = parseFloat((aiVoteRatio * 100).toFixed(1));
+  // ── 4. Model B: Visual pixel analysis ──
+  let visualResult = null;
+  let visualAiProb = 50; // neutral default if visual fails
+  try {
+    visualResult = await analyzeVisualFeatures(imageBuffer);
+    visualAiProb = visualResult.aiProbability;
+  } catch (err) {
+    // Visual analysis optional — degrade gracefully
+    visualResult = { error: err.message, aiProbability: 50 };
+  }
+
+  // ── 5. Ensemble fusion (weighted average) ──
+  //   KNN weight: 0.45 — reliable when EXIF tags present
+  //   Visual weight: 0.55 — reliable for pixel-level GAN artifacts
+  const W_KNN    = 0.45;
+  const W_VISUAL = 0.55;
+  const ensembleAiProb = parseFloat(
+    (W_KNN * knnAiProb + W_VISUAL * visualAiProb).toFixed(1)
+  );
+  const aiProbability   = ensembleAiProb;
   const realProbability = parseFloat((100 - aiProbability).toFixed(1));
 
-  // ── 5. Classification band ──
+  // ── 6. Classification band ──
   let classification;
   let confidence;
-  if (aiProbability >= 70) {
+  if (aiProbability >= 65) {
     classification = 'AI_GENERATED';
     confidence     = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
-  } else if (aiProbability <= 35) {
+  } else if (aiProbability <= 38) {
     classification = 'REAL_CAMERA';
     confidence     = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
   } else {
     classification = 'UNCERTAIN';
-    confidence     = parseFloat((40 + Math.abs(aiProbability - 52.5)).toFixed(1));
+    confidence     = parseFloat((40 + Math.abs(aiProbability - 51.5)).toFixed(1));
   }
 
-  // ── 6. Signal report (for UI) ──
+  // ── 7. Signal report + visual signals ──
   const signals = SIGNALS.map((sig) => {
     let triggered = false;
     try { triggered = sig.check(metadataFingerprint, sharpStats); } catch { /* skip */ }
@@ -476,29 +489,89 @@ const analyzeImageMetadata = async (imageBuffer) => {
     };
   }).sort((a, b) => b.weight - a.weight);
 
+  // Append visual model signals
+  if (visualResult && !visualResult.error) {
+    const f = visualResult.features;
+    const vSignals = [
+      {
+        id: 'visual_noise_energy',
+        label: 'Visual Noise Fingerprint',
+        weight: 18,
+        triggered: f.noiseEnergy < 0.04,
+        score: f.noiseEnergy < 0.04 ? 18 : 0,
+        detail: f.noiseEnergy < 0.04
+          ? `Noise energy ${f.noiseEnergy.toFixed(4)} — too smooth for a real camera sensor`
+          : null,
+      },
+      {
+        id: 'visual_block_variance',
+        label: 'Smooth Block Structure (GAN)',
+        weight: 16,
+        triggered: f.blockVariance > 0.65,
+        score: f.blockVariance > 0.65 ? 16 : 0,
+        detail: f.blockVariance > 0.65
+          ? `Block variance score ${f.blockVariance.toFixed(3)} — GAN-typical uniform regions`
+          : null,
+      },
+      {
+        id: 'visual_chromatic',
+        label: 'No Chromatic Aberration',
+        weight: 14,
+        triggered: f.chromaticScore > 0.75,
+        score: f.chromaticScore > 0.75 ? 14 : 0,
+        detail: f.chromaticScore > 0.75
+          ? 'Perfect channel alignment — real lenses produce R/B fringing at edges'
+          : null,
+      },
+      {
+        id: 'visual_edge_density',
+        label: 'Unnatural Edge Pattern',
+        weight: 10,
+        triggered: f.edgeDensity < 0.05 || f.edgeDensity > 0.45,
+        score: f.edgeDensity < 0.05 || f.edgeDensity > 0.45 ? 10 : 0,
+        detail: f.edgeDensity < 0.05
+          ? 'Extremely smooth — diffusion model over-smoothing detected'
+          : f.edgeDensity > 0.45 ? 'Unnatural edge density pattern' : null,
+      },
+    ];
+    signals.push(...vSignals);
+    signals.sort((a, b) => b.weight - a.weight);
+  }
+
   const triggeredSignals = signals.filter((s) => s.triggered);
 
-  // ── 7. Nearest neighbours detail (debug / transparency) ──
+  // ── 8. Nearest neighbours detail ──
   const nearestNeighbours = kNearestIndices.map((i) => ({
     source: TRAINING_DATA[i].src,
     label: TRAINING_DATA[i].l === 0 ? 'REAL_CAMERA' : 'AI_GENERATED',
   }));
 
   return {
-    // KNN result
+    // Ensemble result
     classification,
     aiProbability,
     realProbability,
     confidence,
+
+    // Model A — KNN metadata
+    knnAiProbability: parseFloat(knnAiProb.toFixed(1)),
     kValue: K,
     aiVotes: bincount[1],
     realVotes: bincount[0],
     nearestNeighbours,
     featureVector,
 
+    // Model B — Visual pixel
+    visualAiProbability: parseFloat(visualAiProb.toFixed(1)),
+    visualFeatures: visualResult?.features || null,
+    visualError: visualResult?.error || null,
+
+    // Weights used
+    ensembleWeights: { knn: W_KNN, visual: W_VISUAL },
+
     // Signal breakdown
     triggeredSignalCount: triggeredSignals.length,
-    totalSignalCount: SIGNALS.length,
+    totalSignalCount: signals.length,
     signals,
     triggeredSignals,
 
