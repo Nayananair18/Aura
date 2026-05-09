@@ -217,9 +217,9 @@ const analyzeSensorIntegrity = (sensorData) => {
     // SMART THRESHOLDS: Adjust sensitivity based on environment
     // 1. Motion Compensation: If the user is moving fast, magnetic jitter is natural.
     const isMovingFast = sensorData.accelerometer && calculateDetailedStats(sensorData.accelerometer).spread > 0.8;
-    const magneticSpreadLimit = isMovingFast ? 15.0 : 8.5; // High motion allows more magnetic drift
+    const magneticSpreadLimit = isMovingFast ? 50.0 : 25.0; // High motion allows more magnetic drift
 
-    const isOutofBounds = stats.avg < 12 || stats.avg > 80; 
+    const isOutofBounds = stats.avg < 5 || stats.avg > 250; // Increased to 250µT to allow indoor environments
     const isNoisyField = stats.spread > magneticSpreadLimit; 
     
     if (isOutofBounds || isNoisyField) {
@@ -240,8 +240,8 @@ const analyzeSensorIntegrity = (sensorData) => {
     // Balanced light stability check: 
     // DARK ROOM EXCEPTION: In very low light (< 10 lux), sensor noise is high.
     const isTooDarkForFlicker = stats.avg < 10;
-    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 0.35;
-    const isSuspiciouslyBright = stats.avg > 800;
+    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 0.85; // Increased variance threshold
+    const isSuspiciouslyBright = stats.avg > 150000; // Direct sunlight can be up to ~100,000 lux
 
     if (isFlickering || isSuspiciouslyBright) {
       analysis.screenDefense.lightFlickerPassed = false;
@@ -261,9 +261,9 @@ const analyzeSensorIntegrity = (sensorData) => {
     // Check for "Planar" movement. Real 3D reality has rotation + translation.
     // Replay attacks often have translation but suspiciously low rotation (Planar).
     const rotationToMotionRatio = gyroStats ? gyroStats.spread / (accStats.spread || 1) : 1;
-    const isPlanarMovement = rotationToMotionRatio < 0.05;
+    const isPlanarMovement = rotationToMotionRatio < 0.02; // Reduced threshold for planar check
 
-    if (accStats.spread < 0.02) {
+    if (accStats.spread < 0.005) { // Reduced to prevent failing photos taken on a steady surface
       analysis.physicsDefense.motionPassed = false;
       analysis.physicsDefense.details = 'Artificial stillness (Tripod/Injection detected)';
       console.log(`[!] PHYSICS FAILURE: Spread ${accStats.spread.toFixed(4)} is too low.`);
