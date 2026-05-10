@@ -233,21 +233,33 @@ const analyzeSensorIntegrity = (sensorData) => {
     }
   }
 
-  // 2. Screen Defense - Light Flicker (Detects invisible 240Hz/PWM flicker)
+    // 2. Screen Defense - Light Flicker (Detects invisible 240Hz/PWM flicker)
   if (sensorData.light && sensorData.light.length >= samples) {
     const stats = calculateLightStats(sensorData.light);
     
-    // Balanced light stability check: 
+    // Check if the device is being held relatively still
+    let motionSpread = 1.0;
+    if (sensorData.accelerometer && sensorData.accelerometer.length >= samples) {
+      motionSpread = calculateDetailedStats(sensorData.accelerometer).spread;
+    }
+    const isStill = motionSpread < 1.0;
+    
+    // SMART FLICKER LIMIT: 
+    // If the phone is completely still, natural light does not fluctuate. 
+    // A relative variance > 0.20 while still is a massive red flag for a computer monitor (PWM).
+    // If the phone is moving, natural lighting shifts rapidly, so we raise the limit.
+    const flickerLimit = isStill ? 0.20 : 1.5;
+    
     const isTooDarkForFlicker = stats.avg < 10;
-    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 1.2; // Only extreme flicker
+    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > flickerLimit; 
     const isNaturalSunlight = stats.avg > 8000; // Monitors rarely exceed 500 lux. >8k is clearly natural.
 
     if (isFlickering && !isNaturalSunlight) {
       analysis.screenDefense.lightFlickerPassed = false;
       analysis.screenDefense.details = 'High-frequency flicker found (Screen PWM detected)';
-      console.log(`[!] LIGHT FAILURE: RelVar ${stats.relativeVariance.toFixed(2)}, Avg ${stats.avg.toFixed(1)} lux.`);
+      console.log(`[!] LIGHT FAILURE: RelVar ${stats.relativeVariance.toFixed(2)} > limit ${flickerLimit}, Avg ${stats.avg.toFixed(1)} lux.`);
     } else {
-      const reason = isNaturalSunlight ? '(Natural Sunlight Verified)' : isTooDarkForFlicker ? '(Low-light compensation)' : '';
+      const reason = isNaturalSunlight ? '(Natural Sunlight)' : isTooDarkForFlicker ? '(Low-light)' : `(Stable light)`;
       console.log(`[✓] LIGHT PASS: Signal stability verified. ${reason}`);
     }
   }
@@ -285,7 +297,7 @@ const analyzeSensorIntegrity = (sensorData) => {
   if (sensorData.location?.latitude != null) analysis.locationValid = true;
   if (sensorData.timestamp?.start && sensorData.timestamp?.end) {
     const duration = sensorData.timestamp.end - sensorData.timestamp.start;
-    analysis.timestampValid = duration > 400 && duration < 60000;
+    analysis.timestampValid = duration > 200 && duration < 60000; // lowered to 200ms for fast captures
   }
 
   // Calculate A.U.R.A Integrity Score
@@ -305,6 +317,10 @@ const analyzeSensorIntegrity = (sensorData) => {
   } else if (!analysis.physicsDefense.motionPassed) {
     analysis.auraFlag = 'YELLOW';
     analysis.overallScore = Math.min(analysis.overallScore, 65);
+  } else if (!analysis.locationValid || !analysis.timestampValid) {
+    // If the spatiotemporal seal fails, downgrade to YELLOW
+    analysis.auraFlag = 'YELLOW';
+    analysis.overallScore = Math.min(analysis.overallScore, 85);
   }
 
   console.log(`[=] FINAL A.U.R.A. SCORE: ${analysis.overallScore}/100`);
