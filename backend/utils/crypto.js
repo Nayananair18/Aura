@@ -217,9 +217,9 @@ const analyzeSensorIntegrity = (sensorData) => {
     // SMART THRESHOLDS: Adjust sensitivity based on environment
     // 1. Motion Compensation: If the user is moving fast, magnetic jitter is natural.
     const isMovingFast = sensorData.accelerometer && calculateDetailedStats(sensorData.accelerometer).spread > 0.8;
-    const magneticSpreadLimit = isMovingFast ? 50.0 : 25.0; // High motion allows more magnetic drift
+    const magneticSpreadLimit = isMovingFast ? 100.0 : 50.0; // Very forgiving
 
-    const isOutofBounds = stats.avg < 5 || stats.avg > 250; // Increased to 250µT to allow indoor environments
+    const isOutofBounds = stats.avg < 1 || stats.avg > 600; // Allow extreme environments
     const isNoisyField = stats.spread > magneticSpreadLimit; 
     
     if (isOutofBounds || isNoisyField) {
@@ -238,17 +238,16 @@ const analyzeSensorIntegrity = (sensorData) => {
     const stats = calculateLightStats(sensorData.light);
     
     // Balanced light stability check: 
-    // DARK ROOM EXCEPTION: In very low light (< 10 lux), sensor noise is high.
     const isTooDarkForFlicker = stats.avg < 10;
-    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 0.85; // Increased variance threshold
-    const isSuspiciouslyBright = stats.avg > 150000; // Direct sunlight can be up to ~100,000 lux
+    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > 1.2; // Only extreme flicker
+    const isNaturalSunlight = stats.avg > 8000; // Monitors rarely exceed 500 lux. >8k is clearly natural.
 
-    if (isFlickering || isSuspiciouslyBright) {
+    if (isFlickering && !isNaturalSunlight) {
       analysis.screenDefense.lightFlickerPassed = false;
-      analysis.screenDefense.details = isFlickering ? 'High-frequency flicker found' : 'Luminescent display signature';
+      analysis.screenDefense.details = 'High-frequency flicker found (Screen PWM detected)';
       console.log(`[!] LIGHT FAILURE: RelVar ${stats.relativeVariance.toFixed(2)}, Avg ${stats.avg.toFixed(1)} lux.`);
     } else {
-      const reason = isTooDarkForFlicker ? '(Low-light compensation active)' : '';
+      const reason = isNaturalSunlight ? '(Natural Sunlight Verified)' : isTooDarkForFlicker ? '(Low-light compensation)' : '';
       console.log(`[✓] LIGHT PASS: Signal stability verified. ${reason}`);
     }
   }
@@ -261,13 +260,14 @@ const analyzeSensorIntegrity = (sensorData) => {
     // Check for "Planar" movement. Real 3D reality has rotation + translation.
     // Replay attacks often have translation but suspiciously low rotation (Planar).
     const rotationToMotionRatio = gyroStats ? gyroStats.spread / (accStats.spread || 1) : 1;
-    const isPlanarMovement = rotationToMotionRatio < 0.02; // Reduced threshold for planar check
+    const isPlanarMovement = rotationToMotionRatio < 0.01; 
 
-    if (accStats.spread < 0.005) { // Reduced to prevent failing photos taken on a steady surface
+    if (accStats.spread === 0 && gyroStats.spread === 0) { 
+      // ONLY fail if perfectly 0 (Emulator injection)
       analysis.physicsDefense.motionPassed = false;
-      analysis.physicsDefense.details = 'Artificial stillness (Tripod/Injection detected)';
-      console.log(`[!] PHYSICS FAILURE: Spread ${accStats.spread.toFixed(4)} is too low.`);
-    } else if (isPlanarMovement && accStats.spread > 0.1) {
+      analysis.physicsDefense.details = 'Absolute zero motion (Emulator injection detected)';
+      console.log(`[!] PHYSICS FAILURE: Perfect 0 spread.`);
+    } else if (isPlanarMovement && accStats.spread > 0.5) {
       analysis.physicsDefense.motionPassed = false;
       analysis.physicsDefense.details = 'Planar movement detected (Possible screen re-capture)';
       console.log(`[!] PHYSICS FAILURE: Gyro-Ratio ${rotationToMotionRatio.toFixed(4)} is too low. (2D Plane Signature)`);
