@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "AURA",
+    "slug": "aura-reality-proof",
+    "scheme": [
+      "aura",
+      "com.googleusercontent.apps.1087877092720-v0q4ir0phhg6uj6hnrh8i5ich3dqobgd"
+    ],
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/authenticity.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/authenticity.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090B"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aura.realityproof"
+    },
+    "android": {
+      "package": "com.aura.realityproof",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/authenticity.png",
+        "backgroundColor": "#09090B"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.HIGH_SAMPLING_RATE_SENSORS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/authenticity.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "react-native-image-marker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "A.U.R.A. needs camera access to capture sensor-authenticated photos."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "A.U.R.A. needs your location to seal the capture coordinates."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2f9ec608-ecf2-463a-967a-b0aa2e6b5748"
+      }
+    },
+    "owner": "muhammadnavas"
+  }
+}

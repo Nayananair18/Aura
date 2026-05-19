@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://aura-our8.onrender.com/api",
+        "EXPO_PUBLIC_USE_MOCK_API": "false",
+        "EXPO_PUBLIC_GOOGLE_DRIVE_ENABLED": "true",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "1087877092720-bkg0vp7oe5kqj5hpt67smt62tvts4osj.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "1087877092720-pr4jo17i10gp27rfb0q6d1frrkd16cg9.apps.googleusercontent.com"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
