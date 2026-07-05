@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
 import { Card, MetadataItem, SectionTitle } from '../components/Card';
+import { EvidenceCard } from '../components/EvidenceCard';
 import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
 import { QrCode } from '../components/QrCode';
@@ -227,6 +228,9 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     mlAnalysis = null,
   } = params;
 
+  // Physical evidence fingerprint — comes from mlAnalysis.metadataFingerprint
+  const physicalFingerprint = mlAnalysis?.metadataFingerprint || null;
+
   const isAuthentic = status === 'authentic';
   const { colors } = theme;
   const styles = getStyles(theme);
@@ -333,6 +337,13 @@ export const ResultScreen = ({ route, navigation, theme }) => {
         <MLScoreCard
           analysis={mlAnalysis}
           isLoading={false}
+          theme={theme}
+        />
+
+        {/* Physical Evidence — EXIF Fingerprint */}
+        <SectionTitle title="PHYSICAL EVIDENCE" theme={theme} />
+        <EvidenceCard
+          fingerprint={physicalFingerprint}
           theme={theme}
         />
 

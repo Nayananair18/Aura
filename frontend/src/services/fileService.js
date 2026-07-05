@@ -1,7 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
-
 // Local storage directory for captured photos
 const CAPTURE_DIRECTORY = `${FileSystem.documentDirectory}RealityProof/`;
 
@@ -202,6 +202,20 @@ export const pickFile = async () => {
  */
 export const getFileAsBase64 = async (fileUri) => {
   try {
+    if (Platform.OS === 'web') {
+      const response = await fetch(fileUri);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result.split(',')[1];
+          resolve(base64data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64',
     });

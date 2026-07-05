@@ -199,9 +199,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
       const FILE_SIZE_LIMIT_FOR_ML = 10 * 1024 * 1024; // 10 MB
       if (uploadedFile.fullSize <= FILE_SIZE_LIMIT_FOR_ML) {
         try {
-          base64Image = await FileSystem.readAsStringAsync(uploadedFile.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+          base64Image = await FileService.getFileAsBase64(uploadedFile.uri);
         } catch (b64Err) {
           console.warn('[Verify] Could not read base64:', b64Err.message);
         }

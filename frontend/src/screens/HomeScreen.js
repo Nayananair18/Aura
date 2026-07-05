@@ -77,6 +77,14 @@ export const HomeScreen = ({ navigation, theme }) => {
           accent
         />
 
+        <ActionCard
+          icon="🔬"
+          title="Verify"
+          description="Check if any image is real or AI-generated"
+          onPress={() => navigation.navigate('Verify')}
+          theme={theme}
+        />
+
         {/* Cloud Storage */}
         <Text style={styles.sectionLabel}>CLOUD STORAGE</Text>
         <Card theme={theme}>

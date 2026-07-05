@@ -259,11 +259,13 @@ const analyzeMetadata = async (req, res) => {
       `(AI: ${result.aiProbability}%, confidence: ${result.confidence}%)`
     );
 
-    const isProd = process.env.NODE_ENV === 'production';
-
-    // Strip raw EXIF fingerprint in production — it can contain GPS, device paths etc.
-    const { metadataFingerprint, ...safeResult } = result;
-    const responseAnalysis = isProd ? safeResult : result;
+    // Always include fingerprint for the Physical Evidence card in the UI.
+    // Strip only GPS coordinates from the fingerprint to protect location privacy.
+    const { metadataFingerprint, ...restResult } = result;
+    const safeFingerprint = metadataFingerprint
+      ? (({ latitude, longitude, ...fp }) => fp)(metadataFingerprint)
+      : null;
+    const responseAnalysis = { ...restResult, metadataFingerprint: safeFingerprint };
 
     res.json({
       success: true,
