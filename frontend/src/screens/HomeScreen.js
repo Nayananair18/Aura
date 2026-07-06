@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { pingBackend } from '../services/api';
 import { Button } from '../components/Button';
@@ -13,9 +13,8 @@ export const HomeScreen = ({ navigation, theme }) => {
   const styles = getStyles(theme);
   const { colors } = theme;
 
-  const [request, response, promptAsync] = Google.useAuthRequest(
-    GoogleDrive.getDriveAuthConfig()
-  );
+  const authConfig = useMemo(() => GoogleDrive.getDriveAuthConfig(), []);
+  const [request, response, promptAsync] = Google.useAuthRequest(authConfig);
 
   useEffect(() => {
     const checkConnection = async () => {
