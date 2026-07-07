@@ -4,6 +4,7 @@ import { useColorScheme } from 'react-native';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { SplashScreen } from './src/screens/SplashScreen';
 import { darkTheme, lightTheme } from './src/theme';
+import { pingBackend } from './src/services/api';
 
 export default function App() {
   const colorScheme = useColorScheme();
@@ -14,9 +15,7 @@ export default function App() {
     setIsDark(colorScheme === 'dark');
     
     // Ping backend on startup to confirm connection
-    import('./src/services/api').then(({ pingBackend }) => {
-      pingBackend();
-    });
+    pingBackend();
   }, [colorScheme]);
 
   const theme = isDark ? darkTheme : lightTheme;

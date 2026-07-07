@@ -176,17 +176,17 @@ export const storeAuthToken = async (token) => {
  * Helper hook / configuration for UI components to use.
  */
 export const getDriveAuthConfig = () => {
-  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS;
+  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || '';
   
   // We MUST use the iOS Client ID hack for both Expo Go and Android standalone APK
   // because Google blocks the Expo proxy and Web Client IDs reject custom schemes.
   const reverseClientId = iosClientId ? iosClientId.split('.').reverse().join('.') : '';
   
   const config = {
-    clientId: iosClientId,
-    iosClientId: iosClientId,
-    androidClientId: iosClientId, // Force it to use the iOS Client ID
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+    clientId: iosClientId || 'mock-client-id.apps.googleusercontent.com',
+    iosClientId: iosClientId || 'mock-client-id.apps.googleusercontent.com',
+    androidClientId: iosClientId || 'mock-client-id.apps.googleusercontent.com', // Force it to use the iOS Client ID
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || 'mock-client-id.apps.googleusercontent.com',
     scopes: ['https://www.googleapis.com/auth/drive.file'],
     redirectUri: iosClientId ? `${reverseClientId}:/oauth2redirect/google` : undefined,
   };
