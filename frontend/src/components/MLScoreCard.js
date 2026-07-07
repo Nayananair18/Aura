@@ -537,6 +537,19 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
               </Text>
             </View>
 
+            {/* Error Level Analysis (ELA) Model */}
+            {analysis.elaAiProbability != null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, width: 110 }}>📈 Error Level ELA</Text>
+                <View style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden', marginHorizontal: 8 }}>
+                  <View style={{ width: `${Math.min(analysis.elaAiProbability ?? 50, 100)}%`, height: '100%', borderRadius: 3, backgroundColor: '#F59E0B' }} />
+                </View>
+                <Text style={{ fontSize: 11, color: '#F59E0B', fontWeight: '700', width: 40, textAlign: 'right' }}>
+                  {analysis.elaAiProbability ?? '?'}%
+                </Text>
+              </View>
+            )}
+
             {/* Ensemble result */}
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={{ fontSize: 11, color: colors.text, width: 110, fontWeight: '600' }}>⚡ Ensemble</Text>

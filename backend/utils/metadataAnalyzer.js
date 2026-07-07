@@ -13,6 +13,7 @@
 
 const sharp = require('sharp');
 const { analyzeVisualFeatures } = require('./visualMLAnalyzer');
+const { analyzeELA } = require('./elaAnalyzer');
 
 // ══════════════════════════════════════════════════════════════════
 //  KNN TRAINING DATA
@@ -450,13 +451,28 @@ const analyzeImageMetadata = async (imageBuffer) => {
     visualResult = { error: err.message, aiProbability: 50 };
   }
 
+  // ── 4.5. Model C: Error Level Analysis (ELA) ──
+  let elaResult = null;
+  let elaAiProb = 50;
+  try {
+    elaResult = await analyzeELA(imageBuffer);
+    if (elaResult.success) {
+      elaAiProb = elaResult.aiProbability * 100; // convert 0.0-1.0 to 0-100
+    }
+  } catch (err) {
+    elaResult = { error: err.message, aiProbability: 0.5 };
+  }
+
   // ── 5. Ensemble fusion (weighted average) ──
-  //   KNN weight: 0.45 — reliable when EXIF tags present
-  //   Visual weight: 0.55 — reliable for pixel-level GAN artifacts
-  const W_KNN    = 0.45;
-  const W_VISUAL = 0.55;
+  //   KNN weight: 0.35 — reliable when EXIF tags present
+  //   Visual weight: 0.40 — reliable for pixel-level GAN artifacts
+  //   ELA weight: 0.25 — reliable for spotting inconsistent compression/variance
+  const W_KNN    = 0.30;
+  const W_VISUAL = 0.35;
+  const W_ELA    = 0.35;
+  
   const ensembleAiProb = parseFloat(
-    (W_KNN * knnAiProb + W_VISUAL * visualAiProb).toFixed(1)
+    (W_KNN * knnAiProb + W_VISUAL * visualAiProb + W_ELA * elaAiProb).toFixed(1)
   );
   const aiProbability   = ensembleAiProb;
   const realProbability = parseFloat((100 - aiProbability).toFixed(1));
@@ -487,7 +503,7 @@ const analyzeImageMetadata = async (imageBuffer) => {
       score: triggered ? sig.weight : 0,
       detail: triggered ? sig.detail : null,
     };
-  }).sort((a, b) => b.weight - a.weight);
+  });
 
   // Append visual model signals
   if (visualResult && !visualResult.error) {
@@ -535,8 +551,23 @@ const analyzeImageMetadata = async (imageBuffer) => {
       },
     ];
     signals.push(...vSignals);
-    signals.sort((a, b) => b.weight - a.weight);
   }
+
+  // Add ELA signals if abnormal
+  if (elaResult && elaResult.success && elaResult.anomalyType !== 'normal') {
+    signals.push({
+      id: 'ela_anomaly',
+      label: 'Error Level Anomaly (ELA)',
+      weight: 15,
+      triggered: true,
+      score: 15,
+      detail: elaResult.anomalyType === 'abnormally_smooth' 
+        ? `ELA variance too low (${elaResult.metrics.variance.toFixed(2)}) — indicates synthetic lossless generation` 
+        : `ELA variance too high (${elaResult.metrics.variance.toFixed(2)}) — inconsistent block artifacts detected`,
+    });
+  }
+
+  signals.sort((a, b) => b.weight - a.weight);
 
   const triggeredSignals = signals.filter((s) => s.triggered);
 
@@ -566,8 +597,12 @@ const analyzeImageMetadata = async (imageBuffer) => {
     visualFeatures: visualResult?.features || null,
     visualError: visualResult?.error || null,
 
+    // Model C — ELA
+    elaAiProbability: parseFloat(elaAiProb.toFixed(1)),
+    elaMetrics: elaResult?.success ? elaResult.metrics : null,
+
     // Weights used
-    ensembleWeights: { knn: W_KNN, visual: W_VISUAL },
+    ensembleWeights: { knn: W_KNN, visual: W_VISUAL, ela: W_ELA },
 
     // Signal breakdown
     triggeredSignalCount: triggeredSignals.length,
