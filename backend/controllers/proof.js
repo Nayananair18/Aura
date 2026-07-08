@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Proof = require('../models/Proof');
 const {
   generateHash,
+  generateImageHash,
   generateDeviceFingerprint,
   validateSensorData,
   calculateSensorStats,
@@ -101,6 +102,9 @@ const generateAuthenticityProof = async (req, res) => {
       logger.info('Authenticity verified. Applying A.U.R.A. Certified Seal...');
       watermarkedImage = await watermarkImage(mediaData);
     }
+    
+    // Hash the final image bytes
+    const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : null;
 
     // Persist to MongoDB if available
     let persistedToDb = false;
@@ -111,6 +115,7 @@ const generateAuthenticityProof = async (req, res) => {
             { proofId: metadata.proofId },
             {
               imageData: watermarkedImage,
+              imageHash: finalImageHash,
               status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
             }
           );
@@ -120,6 +125,7 @@ const generateAuthenticityProof = async (req, res) => {
           const proofDocument = new Proof({
             proofId,
             hash: proofHash,
+            imageHash: finalImageHash,
             sensorData,
             metadata,
             confidence: overallConfidence,

@@ -36,20 +36,40 @@ const verifyMedia = async (req, res) => {
     const { fileHash, metadata, uploadedMediaHash } = req.body;
 
     // Validate input
-    if (!fileHash || !metadata || !uploadedMediaHash) {
+    if (!metadata || !uploadedMediaHash) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: fileHash, metadata, uploadedMediaHash',
+        message: 'Missing required fields: metadata, uploadedMediaHash',
       });
     }
 
-    // Exact hash match
-    const isExactMatch = fileHash === uploadedMediaHash;
+    let isExactMatch = false;
+    let storedHash = fileHash || null;
+
+    if (isDbConnected()) {
+      // Query the ledger to see if this exact image hash was registered by AURA
+      const existingProof = await Proof.findOne({ imageHash: uploadedMediaHash });
+      if (existingProof) {
+        isExactMatch = true;
+        storedHash = existingProof.imageHash;
+      }
+    } else {
+      // Offline fallback: if the frontend provides a fileHash (e.g. from a QR code)
+      // we check against that. If it's the SAME as uploadedMediaHash (because the frontend
+      // wrongly sends it as both during a gallery upload), we must reject it as a mock unless
+      // it actually comes from a QR (but we can't tell here). So offline verify is best effort.
+      if (fileHash && fileHash !== uploadedMediaHash) {
+        // If they provided a DIFFERENT fileHash, we can check hamming distance
+      } else if (fileHash && fileHash === uploadedMediaHash) {
+        // If frontend passes the same hash for both, we can't really verify it offline.
+        // We will default to suspicious unless we have sensor evidence to reject it.
+      }
+    }
 
     // Deterministic confidence: 99.7 for exact match, Hamming-distance-based for mismatch
     const matchPercentage = isExactMatch
       ? 100
-      : hammingConfidence(fileHash, uploadedMediaHash);
+      : hammingConfidence(storedHash, uploadedMediaHash);
 
     const confidence = isExactMatch ? 99.7 : matchPercentage;
 
@@ -79,7 +99,7 @@ const verifyMedia = async (req, res) => {
         isValid: isExactMatch,
         matchPercentage,
         uploadedHash: uploadedMediaHash.substring(0, 16) + '...',
-        storedHash: fileHash.substring(0, 16) + '...',
+        storedHash: (storedHash || 'none').substring(0, 16) + '...',
       },
       sensorValidation: isExactMatch ? 'passed' : (hasSensorEvidence ? 'failed' : 'unknown'),
       metadataConsistency: isExactMatch ? 'consistent' : (metadata ? 'unknown' : 'unknown'),

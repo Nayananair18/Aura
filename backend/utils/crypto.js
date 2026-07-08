@@ -15,6 +15,17 @@ const generateHash = (data) => {
   }
 };
 
+const generateImageHash = (base64String) => {
+  try {
+    return crypto
+      .createHash('sha256')
+      .update(base64String)
+      .digest('hex');
+  } catch (error) {
+    throw new Error(`Image Hash generation failed: ${error.message}`);
+  }
+};
+
 /**
  * Generate device fingerprint
  */
@@ -375,6 +386,7 @@ const watermarkImage = async (base64Image) => {
 
 module.exports = {
   generateHash,
+  generateImageHash,
   generateDeviceFingerprint,
   compareHashes,
   validateSensorData,
@@ -384,4 +396,3 @@ module.exports = {
   analyzeSensorIntegrity,
   watermarkImage,
 };
-

@@ -43,6 +43,10 @@ const ProofSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    imageHash: {
+      type: String,
+      index: true,
+    },
     sensorData: {
       accelerometer: [SensorReadingSchema],
       gyroscope: [SensorReadingSchema],

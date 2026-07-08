@@ -211,7 +211,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
       setVerifyStep('Running A.U.R.A. & ML analysis...');
       const [result, mlResponse] = await Promise.all([
         verifyMedia(
-          fileHash,
+          null, // No known expected hash when uploading blindly from gallery
           { fileName: uploadedFile.name, fileType: uploadedFile.type, fileSize: uploadedFile.fullSize, uploadedAt: new Date().toISOString() },
           fileHash
         ),
