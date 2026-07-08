@@ -13,7 +13,7 @@ import SensorManager, { SensorManager as SensorManagerClass } from '../services/
 import { applyAuraWatermark } from '../utils/watermark';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
 
