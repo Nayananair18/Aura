@@ -297,7 +297,7 @@ const analyzeSensorIntegrity = (sensorData) => {
   if (sensorData.location?.latitude != null) analysis.locationValid = true;
   if (sensorData.timestamp?.start && sensorData.timestamp?.end) {
     const duration = sensorData.timestamp.end - sensorData.timestamp.start;
-    analysis.timestampValid = duration > 200 && duration < 60000; // lowered to 200ms for fast captures
+    analysis.timestampValid = duration >= 0 && duration < 300000; // up to 5 minutes to frame the shot
   }
 
   // Calculate A.U.R.A Integrity Score

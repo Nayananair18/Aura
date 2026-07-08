@@ -121,6 +121,8 @@ export class SensorManager {
    * Stop collecting sensor data
    */
   stopCollecting() {
+    if (!this.isCollecting) return;
+
     this.subscriptions.forEach((sub) => sub.remove());
     this.subscriptions = [];
     this.isCollecting = false;

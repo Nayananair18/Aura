@@ -6,7 +6,7 @@ import { Card, SectionTitle } from '../components/Card';
 import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
 import { PulseDot, SensorGraph } from '../components/SensorGraph';
-import { generateAuthenticityProof } from '../services/api';
+import { generateAuthenticityProof, analyzeImageMetadata } from '../services/api';
 import * as FileService from '../services/fileService';
 import * as GoogleDrive from '../services/googleDriveService';
 import SensorManager, { SensorManager as SensorManagerClass } from '../services/sensorManager';
@@ -371,8 +371,11 @@ export const CaptureScreen = ({ navigation, theme }) => {
         platform: Platform.OS,
       };
 
-      // 1. Generation & Verification (Backend adds watermark if GREEN)
-      const proofResponse = await generateAuthenticityProof(prep.base64, sensorData, metadata);
+      // 1. Generation & Verification and 2. ML Metadata Analysis concurrently
+      const [proofResponse, mlResponse] = await Promise.all([
+        generateAuthenticityProof(prep.base64, sensorData, metadata),
+        analyzeImageMetadata(prep.base64, photoMetadata.fileName, 'image/jpeg')
+      ]);
       
       let finalPhotoUri = photo?.uri;
       
@@ -413,7 +416,8 @@ export const CaptureScreen = ({ navigation, theme }) => {
         verification,
         sensorData, 
         metadata, 
-        photoData: { ...photo, uri: finalPhotoUri } 
+        photoData: { ...photo, uri: finalPhotoUri },
+        mlAnalysis: mlResponse?.analysis || null,
       });
     } catch (err) {
       console.error('Error generating proof:', err);
@@ -430,6 +434,11 @@ export const CaptureScreen = ({ navigation, theme }) => {
       setUploadProgress(20);
       const savedPhoto = await FileService.saveCapturedPhoto(photo.uri);
       setCapturedPhoto(savedPhoto);
+
+      // Stop sensors right after capture to capture the exact physical duration
+      SensorManager.stopCollecting();
+      setIsCaptureActive(false);
+
       setUploadProgress(50);
       const driveResult = await GoogleDrive.uploadToGoogleDrive(savedPhoto.uri, savedPhoto.name, 'image/jpeg');
       setUploadProgress(80);
