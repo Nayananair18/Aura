@@ -354,9 +354,11 @@ const watermarkImage = async (base64Image) => {
       </svg>
     `);
 
-    // Process image with sharp
+    // Process image with sharp — preserve EXIF metadata so the watermarked
+    // image still carries the original camera make/model/shutter/aperture/ISO.
     const processedBuffer = await sharp(imgBuffer)
       .resize(1080) // Standardize width
+      .withMetadata()  // Preserve original EXIF tags
       .composite([{
         input: svgOverlay,
         gravity: 'south',

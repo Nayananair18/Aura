@@ -13,6 +13,7 @@ import SensorManager, { SensorManager as SensorManagerClass } from '../services/
 import { applyAuraWatermark } from '../utils/watermark';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
+import * as FileSystem from 'expo-file-system';
 
 // ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
 
@@ -357,6 +358,20 @@ export const CaptureScreen = ({ navigation, theme }) => {
   const handleGenerateProof = async (photo, photoMetadata) => {
     try {
       const sensorData = SensorManager.getSensorData();
+
+      // Read the raw photo as base64 BEFORE any image manipulation.
+      // expo-image-manipulator strips all EXIF during re-encoding,
+      // so we must preserve the original bytes for ML EXIF analysis.
+      let rawBase64 = null;
+      try {
+        rawBase64 = await FileSystem.readAsStringAsync(photo.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (readErr) {
+        console.warn('[AURA] Could not read raw photo bytes for ML analysis:', readErr.message);
+      }
+
+      // Compress + resize for the proof pipeline (strips EXIF — that's fine for hashing)
       const prep = await applyAuraWatermark(photo.uri);
 
       // Use a stable, persistent device ID — never Math.random()
@@ -371,10 +386,14 @@ export const CaptureScreen = ({ navigation, theme }) => {
         platform: Platform.OS,
       };
 
-      // 1. Generation & Verification and 2. ML Metadata Analysis concurrently
+      // Run proof generation and ML metadata analysis concurrently.
+      // ML analysis uses the RAW bytes (with EXIF intact) so it can read
+      // camera make/model/shutter/aperture/ISO — not the stripped version.
       const [proofResponse, mlResponse] = await Promise.all([
         generateAuthenticityProof(prep.base64, sensorData, metadata),
-        analyzeImageMetadata(prep.base64, photoMetadata.fileName, 'image/jpeg')
+        rawBase64
+          ? analyzeImageMetadata(rawBase64, photoMetadata.fileName, 'image/jpeg')
+          : Promise.resolve(null),
       ]);
       
       let finalPhotoUri = photo?.uri;

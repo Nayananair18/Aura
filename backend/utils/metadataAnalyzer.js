@@ -44,6 +44,13 @@ const TRAINING_DATA = [
   { f: [1,1,1,1,1,0,0,0,0,0,1,1,1], l: 0, src: 'sony_rx100'             },
   { f: [1,1,1,1,0,1,0,0,0,0,1,1,1], l: 0, src: 'fuji_xpro'             },
   { f: [1,1,1,1,1,0,0,0,0,0,1,0,1], l: 0, src: 'gopro'                  },
+  // Android phones — GPS often denied by user; EXIF still present
+  { f: [1,1,1,1,1,0,0,0,0,0,1,1,1], l: 0, src: 'android_no_gps'        },
+  { f: [1,1,1,0,1,0,0,0,0,0,1,1,1], l: 0, src: 'android_wide_angle'    },
+  { f: [1,1,1,1,1,0,0,0,0,0,0,1,1], l: 0, src: 'android_no_flash_gps'  },
+  // AURA-captured: resize strips some tags but make/model/shutter always survive
+  { f: [1,1,1,1,1,0,0,0,0,0,1,0,0], l: 0, src: 'aura_android_capture'  },
+  { f: [1,1,1,1,1,0,0,0,0,0,0,0,0], l: 0, src: 'aura_minimal_exif'     },
 
   // ── AI-generated images (label = 1) ─────────────────────────
   { f: [0,0,0,0,0,0,1,1,1,1,0,0,0], l: 1, src: 'stable_diffusion_full'  },
@@ -480,10 +487,10 @@ const analyzeImageMetadata = async (imageBuffer) => {
   // ── 6. Classification band ──
   let classification;
   let confidence;
-  if (aiProbability >= 65) {
+  if (aiProbability >= 70) {         // Raised from 65 → 70 to reduce false AI positives
     classification = 'AI_GENERATED';
     confidence     = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
-  } else if (aiProbability <= 38) {
+  } else if (aiProbability <= 35) {  // Lowered from 38 → 35 to match tighter real-camera band
     classification = 'REAL_CAMERA';
     confidence     = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
   } else {
