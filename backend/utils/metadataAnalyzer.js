@@ -307,106 +307,7 @@ const parseXmpSignals = (xmpStr) => {
   return out;
 };
 
-const extractExifTags = (buf, result) => {
-  try {
-    if (buf.length < 8) return;
-    const byteOrder = buf.slice(0, 2).toString('ascii');
-    const isLE = byteOrder === 'II';
-    const read16 = (o) => isLE ? buf.readUInt16LE(o) : buf.readUInt16BE(o);
-    const read32 = (o) => isLE ? buf.readUInt32LE(o) : buf.readUInt32BE(o);
-
-    const ifd0 = read32(4);
-    if (ifd0 >= buf.length) return;
-
-    const readStr = (off, len) => {
-      try { return buf.slice(off, off + len).toString('ascii').replace(/\0/g, '').trim(); }
-      catch { return ''; }
-    };
-    const readRat = (off) => {
-      try {
-        const n = read32(off), d = read32(off + 4);
-        return d !== 0 ? n / d : null;
-      } catch { return null; }
-    };
-
-    const TAG_MAP = {
-      0x010F: 'make',         0x0110: 'model',        0x0131: 'software',
-      0x0132: 'dateTime',     0x9003: 'dateTimeOriginal', 0x9004: 'dateTimeDigitized',
-      0x9290: 'subSecTime',   0x9291: 'subSecTimeOriginal',
-      0x8769: '_exifIFD',     0x8825: '_gpsIFD',
-      0x9000: 'exifVersion',  0x829A: 'exposureTime', 0x829D: 'fNumber',
-      0x8827: 'isoSpeedRating', 0x9202: 'aperture',   0x9201: 'shutterSpeed',
-      0x920A: 'focalLength',  0xA405: 'focalLengthIn35mmFormat',
-      0x9207: 'meteringMode', 0x9209: 'flash',        0xA402: 'exposureMode',
-      0xA403: 'whiteBalance', 0x0002: 'latitude',     0x0004: 'longitude',
-    };
-
-    const parseIFD = (offset) => {
-      if (offset + 2 >= buf.length) return;
-      const count = read16(offset);
-      if (count > 500) return;
-      for (let i = 0; i < count; i++) {
-        const e = offset + 2 + i * 12;
-        if (e + 12 > buf.length) break;
-        const tag  = read16(e);
-        const type = read16(e + 2);
-        const cnt  = read32(e + 4);
-        const voff = e + 8;
-        const name = TAG_MAP[tag];
-        if (!name) continue;
-        try {
-          if (name === '_exifIFD' || name === '_gpsIFD') {
-            parseIFD(read32(voff)); continue;
-          }
-          if (type === 2) {
-            const off = cnt <= 4 ? voff : read32(voff);
-            if (off + cnt <= buf.length) result[name] = readStr(off, cnt);
-          } else if (type === 3 && cnt === 1) {
-            result[name] = read16(voff);
-          } else if (type === 4 && cnt === 1) {
-            result[name] = read32(voff);
-          } else if (type === 5) {
-            result[name] = readRat(read32(voff));
-          } else if (type === 7 && name === 'exifVersion') {
-            const off = cnt <= 4 ? voff : read32(voff);
-            if (off + cnt <= buf.length) result[name] = buf.slice(off, off + cnt).toString('ascii');
-          }
-        } catch { /* skip malformed tag */ }
-      }
-    };
-
-    parseIFD(ifd0);
-  } catch { /* tolerate corrupt EXIF */ }
-};
-
-const parseExifFromBuffer = (buf) => {
-  const result = {};
-  try {
-    if (!buf || buf.length < 12) return result;
-    let off = 2;
-    while (off < buf.length - 4) {
-      const marker = buf.readUInt16BE(off);
-      if (marker === 0xFFE1) {
-        const segLen = buf.readUInt16BE(off + 2);
-        const seg = buf.slice(off + 4, off + 2 + segLen);
-        if (seg.slice(0, 6).toString('ascii') === 'Exif\0\0') {
-          extractExifTags(seg.slice(6), result);
-        }
-        const segStr = seg.toString('utf8', 0, Math.min(100, seg.length));
-        if (segStr.includes('xpacket') || segStr.includes('xmp')) {
-          result.xmp = parseXmpSignals(seg.toString('utf8'));
-        }
-        off += 2 + segLen;
-      } else if ((marker & 0xFF00) === 0xFF00) {
-        if (buf.length <= off + 3) break;
-        off += 2 + buf.readUInt16BE(off + 2);
-      } else {
-        break;
-      }
-    }
-  } catch { /* partial EXIF acceptable */ }
-  return result;
-};
+const exifr = require('exifr');
 
 // ══════════════════════════════════════════════════════════════════
 //  MAIN ANALYSIS FUNCTION
@@ -432,8 +333,8 @@ const normalizeProvidedExif = (exif) => {
   out.isoSpeedRating = flat.ISOSpeedRatings || flat.isoSpeedRating || flat.iso;
   out.focalLength = flat.FocalLength || flat.focalLength;
   out.flash = flat.Flash !== undefined ? flat.Flash : flat.flash;
-  out.latitude = flat.GPSLatitude || flat.latitude;
-  out.longitude = flat.GPSLongitude || flat.longitude;
+  out.latitude = flat.GPSLatitude || flat.latitude || flat.latitude;
+  out.longitude = flat.GPSLongitude || flat.longitude || flat.longitude;
   
   // Remove undefined properties
   Object.keys(out).forEach(key => out[key] === undefined && delete out[key]);
@@ -465,7 +366,18 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   }
 
   // ── 2. EXIF extraction ──
-  const exifMeta = parseExifFromBuffer(imageBuffer);
+  let exifMeta = {};
+  try {
+    const rawExif = await exifr.parse(imageBuffer, { 
+      exif: true, gps: true, tiff: true, xmp: true 
+    });
+    if (rawExif) {
+      exifMeta = normalizeProvidedExif(rawExif);
+      // also try to pull xmp if possible (exifr pulls it out sometimes into top level or as strings)
+    }
+  } catch (err) {
+    console.error('exifr parse error:', err.message);
+  }
   const normalizedProvidedExif = normalizeProvidedExif(providedExif);
   
   // Merge EXIF data, giving priority to providedExif because Expo Camera
