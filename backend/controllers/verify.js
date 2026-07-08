@@ -232,7 +232,7 @@ const getVerificationHistory = async (req, res) => {
  */
 const analyzeMetadata = async (req, res) => {
   try {
-    const { image, fileName, fileType } = req.body;
+    const { image, fileName, fileType, exifData } = req.body;
 
     if (!image) {
       return res.status(400).json({
@@ -252,7 +252,7 @@ const analyzeMetadata = async (req, res) => {
     logger.info(`[ML] Starting metadata analysis${fileName ? ` for: ${fileName}` : ''}`);
 
     const buffer = toBuffer(image);
-    const result = await analyzeImageMetadata(buffer);
+    const result = await analyzeImageMetadata(buffer, exifData);
 
     logger.info(
       `[ML] Analysis complete — classification: ${result.classification} ` +

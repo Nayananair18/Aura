@@ -392,7 +392,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
       const [proofResponse, mlResponse] = await Promise.all([
         generateAuthenticityProof(prep.base64, sensorData, metadata),
         rawBase64
-          ? analyzeImageMetadata(rawBase64, photoMetadata.fileName, 'image/jpeg')
+          ? analyzeImageMetadata(rawBase64, photoMetadata.fileName, 'image/jpeg', photoMetadata.exif)
           : Promise.resolve(null),
       ]);
       
@@ -469,6 +469,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
         driveLink: driveResult?.webViewLink,
         uploadedAt: new Date().toISOString(),
         isDemoMode: Boolean(driveResult?.isDemoMode),
+        exif: photo.exif,
       };
       await FileService.savePhotoMetadata(metadata);
       setUploadProgress(100);

@@ -349,7 +349,7 @@ const mockAnalyzeMetadata = (fileName) =>
 /**
  * Analyze image metadata with ML model — AI-generated vs real camera
  */
-export const analyzeImageMetadata = async (base64Image, fileName, fileType) => {
+export const analyzeImageMetadata = async (base64Image, fileName, fileType, exifData = null) => {
   try {
     if (USE_MOCK_API) return mockAnalyzeMetadata(fileName);
 
@@ -357,6 +357,7 @@ export const analyzeImageMetadata = async (base64Image, fileName, fileType) => {
       image: base64Image,
       fileName,
       fileType,
+      exifData,
     });
 
     return response.data;

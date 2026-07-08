@@ -412,15 +412,44 @@ const parseExifFromBuffer = (buf) => {
 //  MAIN ANALYSIS FUNCTION
 // ══════════════════════════════════════════════════════════════════
 
+const normalizeProvidedExif = (exif) => {
+  if (!exif || typeof exif !== 'object') return {};
+  
+  // Flatten iOS nested objects if present
+  const flat = { ...exif, ...(exif['{Exif}'] || {}), ...(exif['{TIFF}'] || {}) };
+  const out = {};
+  
+  // Map common uppercase/Expo tags to our internal lowercase names
+  out.make = flat.Make || flat.make;
+  out.model = flat.Model || flat.model;
+  out.software = flat.Software || flat.software;
+  out.exifVersion = flat.ExifVersion || flat.exifVersion;
+  out.exposureTime = flat.ExposureTime || flat.exposureTime;
+  
+  // Some cameras use FNumber, others use ApertureValue
+  out.aperture = flat.FNumber || flat.ApertureValue || flat.aperture;
+  out.shutterSpeed = flat.ExposureTime || flat.ShutterSpeedValue || flat.shutterSpeed;
+  out.isoSpeedRating = flat.ISOSpeedRatings || flat.isoSpeedRating || flat.iso;
+  out.focalLength = flat.FocalLength || flat.focalLength;
+  out.flash = flat.Flash !== undefined ? flat.Flash : flat.flash;
+  out.latitude = flat.GPSLatitude || flat.latitude;
+  out.longitude = flat.GPSLongitude || flat.longitude;
+  
+  // Remove undefined properties
+  Object.keys(out).forEach(key => out[key] === undefined && delete out[key]);
+  return out;
+};
+
 /**
  * Analyze image with dual-model ensemble:
  *   Model A — KNN on EXIF metadata (weight: 0.45)
  *   Model B — Visual pixel CNN features (weight: 0.55)
  *
  * @param {Buffer} imageBuffer
+ * @param {object} providedExif - EXIF JSON provided by the client (since Expo Camera strips EXIF on Android)
  * @returns {Promise<AnalysisResult>}
  */
-const analyzeImageMetadata = async (imageBuffer) => {
+const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   // ── 1. Sharp image stats ──
   let sharpStats = {};
   try {
@@ -437,7 +466,11 @@ const analyzeImageMetadata = async (imageBuffer) => {
 
   // ── 2. EXIF extraction ──
   const exifMeta = parseExifFromBuffer(imageBuffer);
-  const metadataFingerprint = { ...sharpStats, ...exifMeta };
+  const normalizedProvidedExif = normalizeProvidedExif(providedExif);
+  
+  // Merge EXIF data, giving priority to providedExif because Expo Camera
+  // often strips EXIF from the JPEG binary but provides it in the response JSON.
+  const metadataFingerprint = { ...sharpStats, ...exifMeta, ...normalizedProvidedExif };
 
   // ── 3. Model A: KNN on metadata ──
   const featureVector = buildFeatureVector(metadataFingerprint, sharpStats);
