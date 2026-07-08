@@ -11,7 +11,7 @@ module.exports = {
 
   // Server settings — 20mb covers base64-encoded images from mobile (10MB JPEG ≈ 13.3MB base64)
   requestTimeout: 30000,
-  maxRequestSize: process.env.MAX_REQUEST_SIZE || '20mb',
+  maxRequestSize: process.env.MAX_REQUEST_SIZE || '50mb',
 
   // Rate limiting
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 min

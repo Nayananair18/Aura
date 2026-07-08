@@ -241,11 +241,11 @@ const analyzeMetadata = async (req, res) => {
       });
     }
 
-    // Check rough size — base64 of 10MB image ≈ 14MB string
-    if (typeof image === 'string' && image.length > 20_000_000) {
+    // Check rough size — base64 of 40MB image ≈ 53MB string
+    if (typeof image === 'string' && image.length > 55_000_000) {
       return res.status(413).json({
         success: false,
-        message: 'Image too large for metadata analysis (max ~15MB)',
+        message: 'Image too large for metadata analysis (max ~40MB)',
       });
     }
 
