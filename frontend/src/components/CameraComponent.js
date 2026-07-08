@@ -77,7 +77,7 @@ export const CameraComponent = ({
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.95,
         exif: true,
-        skipProcessing: false,
+        skipProcessing: true, // MUST be true on Android to prevent EXIF stripping
       });
 
       setCapturePhase(null);
