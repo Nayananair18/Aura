@@ -365,7 +365,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
       let rawBase64 = null;
       try {
         rawBase64 = await FileSystem.readAsStringAsync(photo.uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64',
         });
       } catch (readErr) {
         console.warn('[AURA] Could not read raw photo bytes for ML analysis:', readErr.message);
