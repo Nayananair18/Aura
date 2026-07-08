@@ -10,7 +10,7 @@ const sharp = require('sharp');
  */
 const analyzeELA = async (imageBuffer) => {
   try {
-    const originalImage = sharp(imageBuffer);
+    const originalImage = sharp(imageBuffer).resize({ width: 800, withoutEnlargement: true });
     const { data: origData, info: origInfo } = await originalImage
       .ensureAlpha()
       .raw()
@@ -18,6 +18,7 @@ const analyzeELA = async (imageBuffer) => {
 
     // Recompress at 90% quality
     const recompressedBuffer = await sharp(imageBuffer)
+      .resize({ width: 800, withoutEnlargement: true })
       .jpeg({ quality: 90, force: true })
       .toBuffer();
 
