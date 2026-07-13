@@ -409,7 +409,8 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   try {
     elaResult = await analyzeELA(imageBuffer);
     if (elaResult.success) {
-      elaAiProb = elaResult.aiProbability * 100; // convert 0.0-1.0 to 0-100
+      // analyzeELA returns aiProbability in 0.0–1.0 range; convert to 0–100
+      elaAiProb = elaResult.aiProbability * 100;
     }
   } catch (err) {
     elaResult = { error: err.message, aiProbability: 0.5 };

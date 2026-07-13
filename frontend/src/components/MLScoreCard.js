@@ -563,7 +563,7 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
 
             {analysis.ensembleWeights && (
               <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 5 }}>
-                Weights: KNN {(analysis.ensembleWeights.knn * 100).toFixed(0)}% · Visual {(analysis.ensembleWeights.visual * 100).toFixed(0)}%
+                Weights: KNN {(analysis.ensembleWeights.knn * 100).toFixed(0)}% · Visual {(analysis.ensembleWeights.visual * 100).toFixed(0)}%{analysis.ensembleWeights.ela != null ? ` · ELA ${(analysis.ensembleWeights.ela * 100).toFixed(0)}%` : ''}
               </Text>
             )}
           </View>

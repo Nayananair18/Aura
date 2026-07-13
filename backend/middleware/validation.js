@@ -21,7 +21,9 @@ const validateGenerateProof = [
  * Validate verify media request
  */
 const validateVerifyMedia = [
-  body('fileHash').notEmpty().withMessage('File hash is required'),
+  // fileHash is optional — the frontend sends null when verifying an image
+  // that was not previously registered (gallery upload path).
+  body('fileHash').optional({ nullable: true }),
   body('metadata').isObject().withMessage('Metadata is required'),
   body('metadata.fileName').notEmpty().withMessage('File name is required'),
   body('uploadedMediaHash').notEmpty().withMessage('Uploaded media hash is required'),

@@ -45,7 +45,7 @@ const analyzeELA = async (imageBuffer) => {
       if (pixelDiff > maxDiff) maxDiff = pixelDiff;
     }
 
-    const numPixels = origInfo.width * origInfo.height;
+    const numPixels = origData.length / 4; // RGBA: 4 bytes per pixel
     const meanError = diffSum / numPixels;
     const variance = (diffSqSum / numPixels) - (meanError * meanError);
 
