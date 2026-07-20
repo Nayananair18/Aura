@@ -1,0 +1,23 @@
+# Python Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases (SQLite local development database)
+backend/aura.db
+aura.db
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Captured and Watermarked Images (Dynamic uploads)
+backend/static/captures/*.jpg
+!backend/static/captures/.gitkeep

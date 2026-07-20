@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A.U.R.A. Platform — "The ISI Mark for Digital Reality"</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="nav-container">
+      <div class="logo">
+        <div class="logo-icon">A</div>
+        <span>A.U.R.A.</span>
+      </div>
+      <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('simulator')">Simulator</button>
+        <button class="tab-btn" onclick="switchTab('feed')">Verification Feed</button>
+        <button class="tab-btn" onclick="switchTab('analytics')">Fraud Analytics</button>
+        <button class="tab-btn" onclick="switchTab('lookup')">Public Resolver</button>
+      </div>
+      <div class="api-key-badge">
+        <span>API-KEY</span>
+        <span>aura_dev_secret_key_...</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="hero-tagline">
+    <div class="hero-quote">"You can fake pixels using AI, but you cannot fake the laws of physics."</div>
+  </div>
+
+  <main>
+    <!-- 1. SIMULATOR TAB -->
+    <div id="tab-simulator" class="tab-content active">
+      <div class="simulator-layout">
+        <!-- Capture Area -->
+        <div class="glass-panel pulse-glow" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          <h3 class="section-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-cyan)"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span>Live Environmental Capture</span>
+          </h3>
+          
+          <!-- Android Phone Frame -->
+          <div class="android-frame">
+            <div class="android-notch"></div>
+            <div class="android-status-bar">
+              <span>A.U.R.A. Secure</span>
+              <span id="android-time">10:14 PM</span>
+            </div>
+
+            <div class="camera-box">
+              <!-- Simulated view using a canvas or beautiful styled image -->
+              <div id="simulated-view">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--accent-cyan); opacity: 0.5;">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+                <p style="font-size: 0.8rem; font-weight: 600; text-align: center;">A.U.R.A. Active Lens</p>
+                <small style="color: var(--text-muted); text-align: center; max-width: 90%; font-size: 0.65rem;">Environmental telemetry online.</small>
+              </div>
+              
+              <div class="camera-overlay">
+                <div class="hud-top">
+                  <div class="hud-badge rec" style="font-size: 0.65rem; padding: 0.2rem 0.4rem;">
+                    <span style="width: 6px; height: 6px; background: var(--accent-danger); border-radius: 50%;"></span>
+                    SECURE
+                  </div>
+                  <div class="hud-badge" style="font-size: 0.65rem; padding: 0.2rem 0.4rem;">
+                    240FPS
+                  </div>
+                </div>
+                <div class="hud-center-reticle"></div>
+                <div class="hud-bottom" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                  <div class="hud-telemetry" id="hud-sensor-telemetry" style="font-size: 0.65rem; padding: 0.4rem;">
+                    <div>LUX: <span class="slider-val" id="hud-lux">450</span></div>
+                    <div>EMF: <span class="slider-val" id="hud-emf">48.2</span> µT</div>
+                    <div>GRAV: <span class="slider-val" id="hud-grav">[0.0, 0.0, 9.8]</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="android-nav-bar">
+              <div class="android-nav-icon triangle"></div>
+              <div class="android-nav-icon circle"></div>
+              <div class="android-nav-icon square"></div>
+            </div>
+          </div>
+
+          <!-- Capture Pipeline Process -->
+          <div class="pipeline-box glass-panel" style="background: rgba(0,0,0,0.2);">
+            <div class="pipeline-nodes">
+              <div class="pipeline-progress-bar" id="pipeline-progress"></div>
+              <div class="node" id="step-1">
+                <div class="node-dot">1</div>
+                <div class="node-label">Sensor Fusion</div>
+              </div>
+              <div class="node" id="step-2">
+                <div class="node-dot">2</div>
+                <div class="node-label">ML Pre-Checks</div>
+              </div>
+              <div class="node" id="step-3">
+                <div class="node-dot">3</div>
+                <div class="node-label">Crypto Hashing</div>
+              </div>
+              <div class="node" id="step-4">
+                <div class="node-dot">4</div>
+                <div class="node-label">QR/EXIF Seal</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Output Verification Result -->
+          <div class="glass-panel result-card" id="capture-result-card">
+            <div class="result-header">
+              <h4 style="font-size: 1.1rem; font-weight: 600;">Verification Receipt</h4>
+              <div class="status-badge" id="result-badge">
+                <!-- Dynamic status -->
+              </div>
+            </div>
+            
+            <div class="result-details" id="result-details-content">
+              <div class="result-info">
+                <div class="info-row">
+                  <div class="info-label">Cryptographic Hash (SHA-256)</div>
+                  <div class="info-value" id="result-hash">3a4f61b0c8d...</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">Blockchain Anchor (Polygon)</div>
+                  <div class="info-value" id="result-ledger-tx" style="color: #a78bfa;">0x82f9d8a3...</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">Environmental Telemetry</div>
+                  <div class="info-value" id="result-telemetry">Lux: 450.0 | EMF: 48.2 uT | Gravity: [0.0, 0.0, 9.8]</div>
+                </div>
+              </div>
+              <div class="result-qr" id="result-qr-box">
+                <!-- Dynamically generated image -->
+              </div>
+            </div>
+            
+            <div id="result-threat-panel" class="threat-panel" style="display: none;">
+              <div class="threat-title">🚨 Screen Replay Spoofing Detected</div>
+              <ul class="threat-list" id="result-threat-reasons">
+                <!-- Threat items list -->
+              </ul>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 1rem;">
+              <a href="#" class="btn" id="download-btn" style="display: none; padding: 0.5rem 1rem; font-size: 0.85rem;" download>
+                📥 Download Sealed Image
+              </a>
+              <button class="btn btn-secondary" onclick="resetSimulator()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                Capture Another
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Controllers / Sensors -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <div class="glass-panel control-grid">
+            <h3 class="section-title" style="padding: 1.25rem 1.25rem 0;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-cyan)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span>Threat Profiles & Presets</span>
+            </h3>
+            
+            <div class="preset-container">
+              <button class="preset-btn active" id="preset-natural" onclick="setPreset('natural')">Natural Outdoors<br>(Pass)</button>
+              <button class="preset-btn" id="preset-monitor" onclick="setPreset('monitor')">Monitor Photo<br>(EMF / Moiré)</button>
+              <button class="preset-btn" id="preset-flicker" onclick="setPreset('flicker')">LED/CRT Display<br>(PWM Anomaly)</button>
+              <button class="preset-btn" id="preset-gravity" onclick="setPreset('gravity')">Physics Violation<br>(Static Gravity)</button>
+              <button class="preset-btn" id="preset-custom" onclick="setPreset('custom')">Manual Custom<br>(Adjust Below)</button>
+            </div>
+
+            <div class="sensor-sliders">
+              <!-- Slider 1 -->
+              <div class="slider-group">
+                <div class="slider-header">
+                  <div class="slider-label">Lux Photometer (Light Intensity)</div>
+                  <div class="slider-val"><span id="val-lux">450</span> lm</div>
+                </div>
+                <input type="range" id="input-lux" min="0" max="2000" value="450" oninput="updateSliders()">
+              </div>
+
+              <!-- Slider 2 -->
+              <div class="slider-group">
+                <div class="slider-header">
+                  <div class="slider-label">Magnetometer EMF (Electromagnetic Field)</div>
+                  <div class="slider-val"><span id="val-emf">48.2</span> µT</div>
+                </div>
+                <input type="range" id="input-emf" min="0" max="300" value="48" oninput="updateSliders()">
+              </div>
+
+              <!-- Slider 3 -->
+              <div class="slider-group">
+                <div class="slider-header">
+                  <div class="slider-label">Moiré Pattern Detection (Grid Interference)</div>
+                  <div class="slider-val"><span id="val-moire">0.05</span></div>
+                </div>
+                <input type="range" id="input-moire" min="0" max="1" step="0.05" value="0.05" oninput="updateSliders()">
+              </div>
+
+              <!-- Slider 4 -->
+              <div class="slider-group">
+                <div class="slider-header">
+                  <div class="slider-label">PWM Backlight Flicker (LED score)</div>
+                  <div class="slider-val"><span id="val-pwm">0.02</span></div>
+                </div>
+                <input type="range" id="input-pwm" min="0" max="1" step="0.05" value="0.02" oninput="updateSliders()">
+              </div>
+
+              <!-- Slider 5 -->
+              <div class="slider-group">
+                <div class="slider-header">
+                  <div class="slider-label">3-Axis Gravity Z Vector</div>
+                  <div class="slider-val"><span id="val-grav">9.8</span> m/s²</div>
+                </div>
+                <input type="range" id="input-grav" min="-20" max="20" step="0.5" value="9.8" oninput="updateSliders()">
+              </div>
+            </div>
+
+            <div class="camera-actions">
+              <button class="btn" id="capture-seal-btn" onclick="executeCapturePipeline()">
+                ⚡ Capture & Cryptographically Seal
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. VERIFICATION FEED TAB -->
+    <div id="tab-feed" class="tab-content">
+      <div class="feed-layout glass-panel">
+        <div class="table-controls">
+          <h3 class="section-title" style="margin-bottom: 0;">
+            <span>Reality Verification Logs</span>
+          </h3>
+          <div class="filter-group">
+            <button class="filter-btn active" id="filter-all" onclick="filterFeed('all')">All Attempts</button>
+            <button class="filter-btn" id="filter-verified" onclick="filterFeed('verified')">Verified</button>
+            <button class="filter-btn" id="filter-rejected" onclick="filterFeed('rejected')">Rejected/Spoofs</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Capture Hash / Timestamp</th>
+                <th>Device ID</th>
+                <th>Validation Status</th>
+                <th>EMF / Lux Profile</th>
+                <th>ML Scores (PWM / Moiré)</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="feed-table-body">
+              <!-- Dynamic Rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. FRAUD ANALYTICS TAB -->
+    <div id="tab-analytics" class="tab-content">
+      <div class="analytics-grid">
+        <div class="glass-panel stat-card">
+          <div class="stat-label">Reality Integrity Index</div>
+          <div class="stat-value success" id="stat-integrity">100%</div>
+        </div>
+        <div class="glass-panel stat-card">
+          <div class="stat-label">Total Authenticated Shots</div>
+          <div class="stat-value" id="stat-verified">0</div>
+        </div>
+        <div class="glass-panel stat-card">
+          <div class="stat-label">Blocked Screen Replays</div>
+          <div class="stat-value danger" id="stat-rejected">0</div>
+        </div>
+        <div class="glass-panel stat-card">
+          <div class="stat-label">API Requests</div>
+          <div class="stat-value" id="stat-total">0</div>
+        </div>
+      </div>
+
+      <div class="charts-row">
+        <div class="glass-panel chart-card">
+          <h3 class="section-title">
+            <span>Threat Vector Vectors</span>
+          </h3>
+          <div style="width: 100%; height: 280px; position: relative;">
+            <canvas id="threatChart"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel chart-card">
+          <h3 class="section-title">
+            <span>Environmental Fusion Balance</span>
+          </h3>
+          <div style="width: 100%; height: 280px; position: relative;">
+            <canvas id="sensorBalanceChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. LOOKUP TAB -->
+    <div id="tab-lookup" class="tab-content">
+      <div class="lookup-container">
+        <div class="glass-panel" style="padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; text-align: center;">
+          <h3 class="section-title" style="justify-content: center;">
+            <span>A.U.R.A. Hash Resolver</span>
+          </h3>
+          <p style="color: var(--text-secondary); font-size: 0.95rem;">
+            Paste any unforgeable hash below or upload an image to confirm if it has been cryptographically sealed by an authenticated camera.
+          </p>
+          <div class="search-box">
+            <input type="text" id="lookup-hash-input" class="search-input" placeholder="Enter 64-character SHA-256 A.U.R.A. signature...">
+            <button class="btn" style="flex: initial; padding: 0 1.5rem;" onclick="resolveHash()">Resolve Reality</button>
+          </div>
+        </div>
+
+        <div class="glass-panel result-card" id="lookup-result-card">
+          <!-- Populated dynamically upon search success -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal Overlay for Verification Inspector -->
+  <div class="modal-overlay" id="detail-modal" onclick="closeModal(event)">
+    <div class="modal-content glass-panel" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="document.getElementById('detail-modal').classList.remove('show')">&times;</button>
+      <h3 class="section-title" style="margin-bottom: 1.5rem;">
+        <span>Sealed Reality Audit Log</span>
+      </h3>
+      <div id="modal-body-content">
+        <!-- Render detail metadata here -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
