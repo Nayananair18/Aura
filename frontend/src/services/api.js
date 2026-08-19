@@ -98,14 +98,15 @@ export const generateAuthenticityProof = async (mediaData, sensorData, metadata)
 /**
  * Verify media authenticity
  */
-export const verifyMedia = async (fileHash, metadata, uploadedMediaHash) => {
+export const verifyMedia = async (fileHash, metadata, uploadedMediaHash, proofId = null) => {
   try {
-    if (USE_MOCK_API) return mockVerifyMedia(fileHash, metadata, uploadedMediaHash);
+    if (USE_MOCK_API) return mockVerifyMedia(fileHash, metadata, uploadedMediaHash, proofId);
 
     const response = await apiClient.post('/media/verify', {
       fileHash,
       metadata,
       uploadedMediaHash,
+      proofId,
       timestamp: new Date().toISOString(),
     });
 
@@ -113,7 +114,7 @@ export const verifyMedia = async (fileHash, metadata, uploadedMediaHash) => {
   } catch (error) {
     if (isNetworkError(error)) {
       console.warn('[AURA API] Backend unreachable. Falling back to mock verification.');
-      return mockVerifyMedia(fileHash, metadata, uploadedMediaHash);
+      return mockVerifyMedia(fileHash, metadata, uploadedMediaHash, proofId);
     }
     throw error;
   }
@@ -236,31 +237,42 @@ const mockGenerateProof = (mediaData, sensorData, metadata) =>
     }, 1500);
   });
 
-const mockVerifyMedia = (fileHash, metadata, uploadedMediaHash) =>
+const mockVerifyMedia = (fileHash, metadata, uploadedMediaHash, proofId = null) =>
   new Promise((resolve) => {
     setTimeout(() => {
-      const isMatch = Math.random() > 0.15;
+      const isMatch = proofId ? true : Math.random() > 0.15;
+      const matchedProofId = proofId || `AURA-8F9A-2B4C-${Math.floor(1000 + Math.random() * 9000)}`;
       resolve({
         success: true,
         verification: {
+          proofId: matchedProofId,
           status: isMatch ? 'authentic' : 'tampered',
           confidence: isMatch ? 99.7 : 15.0,
+          auraFlag: isMatch ? 'GREEN' : 'RED',
+          statusMessage: isMatch ? '✓ AUTHENTIC CAPTURE' : '⚠ MEDIA MODIFIED',
+          statusDetails: isMatch ? 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID' : 'Proof Found | Media Integrity: MISMATCH',
           hashValidation: {
             isValid: isMatch,
             matchPercentage: isMatch ? 100 : 12,
-            uploadedHash: uploadedMediaHash,
-            storedHash: fileHash,
+            uploadedHash: uploadedMediaHash ? uploadedMediaHash.substring(0, 16) + '...' : 'none',
+            storedHash: fileHash ? fileHash.substring(0, 16) + '...' : 'none',
           },
           sensorValidation: isMatch ? 'passed' : 'failed',
           metadataConsistency: isMatch ? 'consistent' : 'inconsistent',
           timestamp: new Date().toISOString(),
-          auraFlag: isMatch ? 'GREEN' : 'RED',
           screenDefense: { result: isMatch ? 'passed' : 'failed', magnetometerPassed: isMatch, lightFlickerPassed: isMatch, details: isMatch ? 'No display signatures found' : 'High magnetic EMI' },
-          physicsDefense: { motionPassed: isMatch, gravityConsistent: isMatch, details: isMatch ? 'Handheld micro-tremors verified' : 'Inconsistent gravity vector' },
+          physicsDefense: { motionPassed: isMatch, gravityConsistent: isMatch, details: isMatch ? 'Handheld signatures verified' : 'Inconsistent gravity vector' },
+          proofDetails: {
+            proofId: matchedProofId,
+            capturedAt: new Date(Date.now() - 3600000).toISOString(),
+            integrityScore: 95,
+            confidence: 99.7,
+            deviceId: 'Verified Device',
+          },
         },
-        message: isMatch ? 'Media is authentic' : 'Media shows signs of tampering',
+        message: isMatch ? '✓ AUTHENTIC CAPTURE' : '⚠ MEDIA MODIFIED',
       });
-    }, 2000);
+    }, 1500);
   });
 
 const mockStoreResult = (_hash, _result, _meta) =>

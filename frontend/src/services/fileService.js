@@ -1,5 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
 // Local storage directory for captured photos
@@ -275,6 +276,101 @@ export const saveFile = async (fileUri, fileName) => {
   }
 };
 
+/**
+ * Save verified watermarked image directly into device photo gallery under "AURA Verified" album.
+ * Keeps original capture and AURA Verified copy as separate files.
+ */
+export const saveToPhoneGallery = async (imageUri) => {
+  try {
+    if (Platform.OS === 'web') {
+      console.log('[AURA Gallery] Web platform — gallery save not supported via MediaLibrary.');
+      return { success: false, message: 'MediaLibrary gallery save is not supported on web' };
+    }
+
+    if (!imageUri) {
+      return { success: false, message: 'No image URI provided' };
+    }
+
+    // 1. Request write-only permissions (prevents requesting unused AUDIO permissions on Android)
+    let permStatus = 'denied';
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      permStatus = perm.status;
+    } catch (pErr) {
+      console.warn('[AURA Gallery] Permission request retry:', pErr.message);
+      try {
+        const getPerm = await MediaLibrary.getPermissionsAsync(true);
+        permStatus = getPerm.status;
+      } catch (gErr) {
+        permStatus = 'granted'; // Fallback for save-only mode
+      }
+    }
+
+    if (permStatus !== 'granted') {
+      console.warn('[AURA Gallery] Media library permission denied.');
+      return { success: false, message: 'Gallery permission was denied.' };
+    }
+
+    let targetUri = imageUri;
+
+    // Handle base64 data URIs by saving to temp file first
+    if (imageUri.startsWith('data:image')) {
+      const tempPath = `${FileSystem.cacheDirectory}aura_verified_${Date.now()}.jpg`;
+      const base64Data = imageUri.split(',')[1] || imageUri;
+      await FileSystem.writeAsStringAsync(tempPath, base64Data, { encoding: 'base64' });
+      targetUri = tempPath;
+    }
+
+    // 2. Create asset in system media store with Expo Go graceful fallback
+    try {
+      const asset = await MediaLibrary.createAssetAsync(targetUri);
+      
+      // Try organizing into "AURA Verified" album (works in development builds & standalone APKs)
+      try {
+        const albumName = 'AURA Verified';
+        const existingAlbum = await MediaLibrary.getAlbumAsync(albumName);
+
+        if (existingAlbum) {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], existingAlbum, false);
+        } else {
+          await MediaLibrary.createAlbumAsync(albumName, asset, false);
+        }
+        console.log(`[AURA Gallery] ✅ Photo saved to gallery album "${albumName}"!`);
+        return {
+          success: true,
+          asset,
+          albumName,
+          message: `Saved to "${albumName}" album in your photos!`,
+        };
+      } catch (albumErr) {
+        console.warn('[AURA Gallery] Album creation restricted (Expo Go mode):', albumErr.message);
+        console.log('[AURA Gallery] ✅ Photo saved directly to your device Photos gallery!');
+        return {
+          success: true,
+          asset,
+          message: 'Saved to your Photos gallery!',
+        };
+      }
+    } catch (createErr) {
+      console.warn('[AURA Gallery] Asset creation fallback to saveToLibraryAsync:', createErr.message);
+      // Fallback: saveToLibraryAsync works in Expo Go without full album permissions
+      await MediaLibrary.saveToLibraryAsync(targetUri);
+      console.log('[AURA Gallery] ✅ Photo saved to your device Photos gallery via saveToLibraryAsync!');
+      return {
+        success: true,
+        message: 'Saved to your Photos gallery!',
+      };
+    }
+  } catch (error) {
+    console.error('[!] Failed to save photo to gallery:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      message: `Could not save photo: ${error.message}`,
+    };
+  }
+};
+
 export default {
   pickFile,
   getFileAsBase64,
@@ -288,4 +384,5 @@ export default {
   savePhotoMetadata,
   getStorageUsage,
   clearLocalStorage,
+  saveToPhoneGallery,
 };

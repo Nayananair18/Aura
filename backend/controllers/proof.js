@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const Proof = require('../models/Proof');
 const {
+  formatProofId,
   generateHash,
   generateImageHash,
   generateDeviceFingerprint,
@@ -85,7 +86,7 @@ const generateAuthenticityProof = async (req, res) => {
         ? activeScores.reduce((a, b) => a + b) / activeScores.length
         : 0;
 
-    const proofId = `PROOF_${uuidv4()}`;
+    const proofId = metadata.proofId || formatProofId();
     logger.info(`Processing proof ${proofId} (Finalized: ${metadata.isFinalized || false})`);
 
     // Guard: reject oversized base64 payloads before they hit sharp (OOM protection)
@@ -96,11 +97,14 @@ const generateAuthenticityProof = async (req, res) => {
       });
     }
 
+    const baseUrl = process.env.VERIFICATION_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://aura-app.com/verify';
+    const verificationUrl = baseUrl.endsWith('/') ? `${baseUrl}${proofId}` : `${baseUrl}/${proofId}`;
+
     // Add server-side watermark if authentic
     let watermarkedImage = mediaData;
     if (integrityAnalysis.auraFlag === 'GREEN' && mediaData && mediaData.length > 100) {
-      logger.info('Authenticity verified. Applying A.U.R.A. Certified Seal...');
-      watermarkedImage = await watermarkImage(mediaData);
+      logger.info(`Authenticity verified. Applying A.U.R.A. Certified Seal (${proofId})...`);
+      watermarkedImage = await watermarkImage(mediaData, proofId, metadata.timestamp || new Date().toISOString(), verificationUrl);
     }
     
     // Hash the final image bytes

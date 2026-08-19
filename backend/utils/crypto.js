@@ -1,5 +1,17 @@
 const crypto = require('crypto');
 const sharp = require('sharp');
+const QRCode = require('qrcode');
+
+/**
+ * Helper to format proof ID to standard AURA format: AURA-8F9A-2B4C-71D2
+ */
+const formatProofId = (rawId) => {
+  if (!rawId) return `AURA-${crypto.randomBytes(8).toString('hex').toUpperCase().match(/.{1,4}/g).join('-')}`;
+  if (rawId.startsWith('AURA-')) return rawId;
+  const clean = rawId.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const hexPart = clean.length >= 16 ? clean.slice(-16) : clean.padEnd(16, '0');
+  return `AURA-${hexPart.match(/.{1,4}/g).join('-')}`;
+};
 
 /**
  * Generate SHA256 hash
@@ -342,39 +354,85 @@ const analyzeSensorIntegrity = (sensorData) => {
 };
 
 /**
- * Adds an "AURA AUTHENTIC" watermark using sharp.
+ * Adds a professional "AURA VERIFIED" Proof Card watermark using sharp & qrcode.
+ * Uses 100% vector SVG icons (no emoji dependencies) for cross-platform rendering.
+ *
+ * @param {string} base64Image - Base64 encoded JPEG/PNG image
+ * @param {string} proofId - Unique Proof ID (e.g. AURA-8F9A-2B4C-71D2)
+ * @param {string|number} timestamp - ISO string or timestamp
+ * @param {string} verificationUrl - Verification URL for QR code
  */
-const watermarkImage = async (base64Image) => {
+const watermarkImage = async (base64Image, proofId = null, timestamp = null, verificationUrl = null) => {
   try {
     if (!base64Image) return null;
-    
-    // Convert base64 to buffer
-    const imgBuffer = Buffer.from(base64Image, 'base64');
-    
-    // Create a high-visibility SVG overlay (Lower Third / Glassmorphism Bar)
+
+    const formattedProofId = formatProofId(proofId);
+
+    const rawDate = timestamp ? new Date(timestamp) : new Date();
+    const dateStr = rawDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+    const timeStr = rawDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const formattedTimestamp = `${dateStr} • ${timeStr}`;
+
+    const baseUrl = verificationUrl || process.env.VERIFICATION_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://aura-app.com/verify';
+    const finalQrUrl = baseUrl.endsWith('/') ? `${baseUrl}${formattedProofId}` : `${baseUrl}/${formattedProofId}`;
+
+    // Generate high-resolution QR Code PNG Buffer (130x130)
+    const qrPngBuffer = await QRCode.toBuffer(finalQrUrl, {
+      width: 130,
+      margin: 1,
+      color: {
+        dark: '#00FF9D',
+        light: '#0F172A',
+      },
+    });
+    const qrBase64 = qrPngBuffer.toString('base64');
+
+    // Create high-end glassmorphism card SVG overlay (1080x180) with vector icons
     const svgOverlay = Buffer.from(`
-      <svg width="1080" height="120">
-        <rect x="0" y="0" width="1080" height="120" fill="rgba(0,0,0,0.6)" />
-        <rect x="0" y="0" width="10" height="120" fill="#00FF9D" />
-        <text x="540" y="75" font-family="sans-serif" font-size="44" font-weight="bold" fill="#00FF9D" text-anchor="middle">
-          🛡️ A.U.R.A. CERTIFIED AUTHENTIC
-        </text>
-        <text x="1050" y="100" font-family="sans-serif" font-size="18" fill="white" text-anchor="end">
-          REALITY-PROVEN DATA
-        </text>
+      <svg width="1080" height="180" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <!-- Card Background -->
+        <rect x="0" y="0" width="1080" height="180" fill="rgba(8, 12, 22, 0.92)" />
+        <!-- Top Neon Line Accent -->
+        <line x1="0" y1="0" x2="1080" y2="0" stroke="#00FF9D" stroke-width="3" />
+
+        <!-- Left Vertical Pill Accent -->
+        <rect x="18" y="18" width="6" height="144" rx="3" fill="#00FF9D" />
+
+        <!-- Vector Shield + Checkmark Icon (No Emoji font dependencies) -->
+        <g transform="translate(36, 20) scale(1.35)">
+          <path d="M12 1L3 4v5c0 5.25 3.75 10.2 9 11.5 5.25-1.3 9-6.25 9-11.5V4l-9-3zm-1 13.5l-3.5-3.5 1.41-1.41L11 11.67l5.59-5.59L18 7.5l-7 7z" fill="#00FF9D" />
+        </g>
+
+        <!-- Title & Badge -->
+        <text x="76" y="38" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#00FF9D" letter-spacing="1">AURA VERIFIED</text>
+        <text x="242" y="38" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="14" font-weight="bold" fill="#475569">|</text>
+        <text x="256" y="38" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="16" font-weight="bold" fill="#FFFFFF" letter-spacing="0.5">AUTHENTIC CAPTURE</text>
+
+        <!-- Proof ID Pill Container -->
+        <rect x="76" y="54" width="410" height="34" rx="6" fill="rgba(0, 255, 157, 0.10)" stroke="rgba(0, 255, 157, 0.35)" stroke-width="1" />
+        <text x="90" y="77" font-family="monospace, Courier New, sans-serif" font-size="16" font-weight="bold" fill="#00FF9D" letter-spacing="1.5">PROOF ID: ${formattedProofId}</text>
+
+        <!-- Timestamp & Security Seal Text -->
+        <text x="76" y="118" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="14" font-weight="600" fill="#E2E8F0">${formattedTimestamp}</text>
+        <text x="76" y="142" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="500" fill="#94A3B8" letter-spacing="0.5">ENVIRONMENTAL PHYSICS &amp; SENSOR INTEGRITY SEALED</text>
+
+        <!-- Right Side QR Code Container -->
+        <rect x="914" y="15" width="150" height="150" rx="12" fill="#0F172A" stroke="rgba(0, 255, 157, 0.4)" stroke-width="1.5" />
+        <image x="924" y="25" width="130" height="130" href="data:image/png;base64,${qrBase64}" />
       </svg>
     `);
 
-    // Process image with sharp — preserve EXIF metadata so the watermarked
-    // image still carries the original camera make/model/shutter/aperture/ISO.
+    const imgBuffer = Buffer.from(base64Image, 'base64');
+
+    // Process image with sharp — preserve EXIF metadata
     const processedBuffer = await sharp(imgBuffer)
       .resize(1080) // Standardize width
-      .withMetadata()  // Preserve original EXIF tags
+      .withMetadata() // Preserve original EXIF tags
       .composite([{
         input: svgOverlay,
         gravity: 'south',
       }])
-      .jpeg({ quality: 85 })
+      .jpeg({ quality: 88 })
       .toBuffer();
 
     return processedBuffer.toString('base64');
@@ -385,6 +443,7 @@ const watermarkImage = async (base64Image) => {
 };
 
 module.exports = {
+  formatProofId,
   generateHash,
   generateImageHash,
   generateDeviceFingerprint,

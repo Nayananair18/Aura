@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
 import { Card, MetadataItem, SectionTitle } from '../components/Card';
 import { EvidenceCard } from '../components/EvidenceCard';
@@ -7,6 +7,7 @@ import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
 import { QrCode } from '../components/QrCode';
 import { SensorGraph } from '../components/SensorGraph';
+import * as FileService from '../services/fileService';
 
 // ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
 
@@ -237,6 +238,36 @@ export const ResultScreen = ({ route, navigation, theme }) => {
 
   const hashValidation = verification.hashValidation || {};
   const confidence = verification.confidence || 99.7;
+  const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
+
+  const handleSaveToGallery = async () => {
+    if (!photoData?.uri) {
+      Alert.alert('Error', 'No image available to save');
+      return;
+    }
+    const res = await FileService.saveToPhoneGallery(photoData.uri);
+    if (res.success) {
+      Alert.alert('Saved!', res.message || 'Saved to "AURA Verified" album in your Photos');
+    } else {
+      Alert.alert('Gallery Save', res.message || 'Could not save to gallery');
+    }
+  };
+
+  const handleShareVerifiedImage = async () => {
+    if (!photoData?.uri) {
+      Alert.alert('Error', 'No image available to share');
+      return;
+    }
+    try {
+      await Share.share({
+        title: 'A.U.R.A. Verified Image',
+        message: `🛡️ A.U.R.A. Verified Authentic Capture\nProof ID: ${activeProofId}\nVerify: https://aura-app.com/verify/${activeProofId}`,
+        url: photoData.uri,
+      });
+    } catch (err) {
+      console.error('Error sharing image:', err.message);
+    }
+  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -395,12 +426,28 @@ export const ResultScreen = ({ route, navigation, theme }) => {
 
         {/* Actions */}
         <Button
-          title="Back to Home"
-          onPress={() => navigation.navigate('Home')}
+          title="Save to AURA Verified"
+          onPress={handleSaveToGallery}
           variant="primary"
           size="large"
           theme={theme}
           style={{ marginTop: theme.spacing.md }}
+        />
+        <Button
+          title="Share Verified Image"
+          onPress={handleShareVerifiedImage}
+          variant="secondary"
+          size="large"
+          theme={theme}
+          style={{ marginTop: theme.spacing.xs }}
+        />
+        <Button
+          title="Back to Home"
+          onPress={() => navigation.navigate('Home')}
+          variant="ghost"
+          size="medium"
+          theme={theme}
+          style={{ marginTop: theme.spacing.xs }}
         />
       </View>
     </ScrollView>
