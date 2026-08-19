@@ -18,7 +18,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aura.realityproof"
+      "bundleIdentifier": "com.aura.realityproof",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.aura.realityproof",
@@ -34,6 +37,7 @@
         "android.permission.HIGH_SAMPLING_RATE_SENSORS",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -43,6 +47,14 @@
     "plugins": [
       "expo-secure-store",
       "react-native-image-marker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "A.U.R.A. needs access to your photo library to save verified photos.",
+          "saveOnly": true,
+          "isAccessPrivilegesRequired": false
+        }
+      ],
       [
         "expo-camera",
         {

@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Button } from '../components/Button';
 import { Card, SectionTitle } from '../components/Card';
 import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
 import { analyzeImageMetadata, storeVerificationResult, verifyMedia } from '../services/api';
 import * as FileService from '../services/fileService';
-import * as FileSystem from 'expo-file-system';
 
-// ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
+// ── Helpers & Styles ──
 
 const getStyles = (theme) => {
   const { colors, spacing, typography } = theme;
@@ -23,7 +23,37 @@ const getStyles = (theme) => {
       paddingBottom: spacing.xxxl,
     },
 
-    // Upload
+    // Tabs
+    tabRow: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      padding: 4,
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tabButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      borderRadius: 8,
+    },
+    tabActive: {
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
+    tabText: {
+      ...typography.footnote,
+      fontWeight: '600',
+      color: colors.textMuted,
+    },
+    tabTextActive: {
+      color: colors.accent,
+    },
+
+    // Upload Area
     uploadArea: {
       borderWidth: 2,
       borderStyle: 'dashed',
@@ -94,6 +124,41 @@ const getStyles = (theme) => {
       fontWeight: '600',
     },
 
+    // Form Input
+    inputLabel: {
+      ...typography.footnote,
+      color: colors.textSecondary,
+      marginBottom: spacing.xs,
+      fontWeight: '600',
+    },
+    textInput: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      padding: spacing.md,
+      color: colors.text,
+      fontFamily: 'monospace',
+      fontSize: 16,
+      marginBottom: spacing.md,
+    },
+
+    // QR Camera
+    cameraScannerContainer: {
+      height: 220,
+      borderRadius: 16,
+      overflow: 'hidden',
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
+    qrHintText: {
+      ...typography.footnote,
+      color: colors.textMuted,
+      textAlign: 'center',
+      marginBottom: spacing.sm,
+    },
+
     // Checks
     checkRow: {
       flexDirection: 'row',
@@ -157,10 +222,14 @@ const CheckRow = ({ icon, label, desc, theme }) => {
 };
 
 export const VerificationScreen = ({ navigation, theme }) => {
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'proofId' | 'qrScan'
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyStep, setVerifyStep] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [proofIdInput, setProofIdInput] = useState('');
+  const [qrScannedData, setQrScannedData] = useState('');
   const [error, setError] = useState(null);
+  const [permission, requestPermission] = useCameraPermissions();
 
   const handleUpload = async () => {
     try {
@@ -182,59 +251,115 @@ export const VerificationScreen = ({ navigation, theme }) => {
     }
   };
 
-  const handleVerify = async () => {
-    if (!uploadedFile) return;
+  /**
+   * Helper to extract Proof ID from URL or raw string
+   */
+  const extractProofId = (text) => {
+    if (!text) return '';
+    const clean = text.trim();
+    // Matches AURA-XXXX-XXXX-XXXX pattern
+    const auraMatch = clean.match(/AURA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}/i);
+    if (auraMatch) return auraMatch[0].toUpperCase();
+    
+    // Or extract last component if URL
+    if (clean.includes('/verify/')) {
+      const parts = clean.split('/verify/');
+      return parts[parts.length - 1].trim().toUpperCase();
+    }
+    return clean.toUpperCase();
+  };
+
+  const handleBarcodeScanned = ({ data }) => {
+    if (!data || isVerifying) return;
+    const extracted = extractProofId(data);
+    setQrScannedData(extracted);
+    Alert.alert('QR Code Scanned', `Extracted Proof ID: ${extracted}`, [
+      { text: 'Verify Now', onPress: () => handleUnifiedVerify({ proofId: extracted }) },
+      { text: 'Scan Again', style: 'cancel' }
+    ]);
+  };
+
+  /**
+   * Centralized Unified Verification Entry Point
+   * Handles Upload, Proof ID, and QR Scanner methods seamlessly
+   */
+  const handleUnifiedVerify = async (overrides = {}) => {
+    const targetFile = overrides.uploadedFile || uploadedFile;
+    const targetProofId = overrides.proofId || (activeTab === 'proofId' ? extractProofId(proofIdInput) : (activeTab === 'qrScan' ? extractProofId(qrScannedData) : null));
+
+    if (!targetFile && !targetProofId) {
+      Alert.alert('Required', 'Please pick an image file, enter a Proof ID, or scan a QR code.');
+      return;
+    }
+
     try {
       setIsVerifying(true);
       setError(null);
 
-      // ── Step 1: Hash the file ──
-      setVerifyStep('Computing cryptographic hash...');
-      const fileHash = await FileService.hashFile(uploadedFile.uri);
-
-      // ── Step 2: Read image as base64 for ML analysis ──
-      // Skip if file > 10MB to avoid OOM on low-memory devices (base64 ≈ 13MB string)
-      setVerifyStep('Extracting metadata fingerprint...');
+      let fileHash = null;
       let base64Image = null;
-      const FILE_SIZE_LIMIT_FOR_ML = 10 * 1024 * 1024; // 10 MB
-      if (uploadedFile.fullSize <= FILE_SIZE_LIMIT_FOR_ML) {
-        try {
-          base64Image = await FileService.getFileAsBase64(uploadedFile.uri);
-        } catch (b64Err) {
-          console.warn('[Verify] Could not read base64:', b64Err.message);
+
+      // Step 1: Hash uploaded file if present
+      if (targetFile) {
+        setVerifyStep('Computing cryptographic hash...');
+        fileHash = await FileService.hashFile(targetFile.uri);
+
+        setVerifyStep('Extracting metadata fingerprint...');
+        const FILE_SIZE_LIMIT_FOR_ML = 10 * 1024 * 1024;
+        if (targetFile.fullSize <= FILE_SIZE_LIMIT_FOR_ML) {
+          try {
+            base64Image = await FileService.getFileAsBase64(targetFile.uri);
+          } catch (b64Err) {
+            console.warn('[Verify] Could not read base64:', b64Err.message);
+          }
         }
-      } else {
-        console.warn('[Verify] File > 10MB — skipping ML metadata analysis to prevent OOM');
       }
 
-      // ── Step 3: Run hash verify + ML analysis in parallel ──
-      setVerifyStep('Running A.U.R.A. & ML analysis...');
+      // Step 2: Run verification against AURA Backend
+      setVerifyStep('Querying AURA Proof Ledger & verifying physics...');
+      const metadataPayload = {
+        fileName: targetFile?.name || 'shared_media.jpg',
+        fileType: targetFile?.type || 'image/jpeg',
+        fileSize: targetFile?.fullSize || null,
+        uploadedAt: new Date().toISOString(),
+      };
+
       const [result, mlResponse] = await Promise.all([
         verifyMedia(
-          null, // No known expected hash when uploading blindly from gallery
-          { fileName: uploadedFile.name, fileType: uploadedFile.type, fileSize: uploadedFile.fullSize, uploadedAt: new Date().toISOString() },
-          fileHash
+          fileHash,
+          metadataPayload,
+          fileHash,
+          targetProofId
         ),
         base64Image
-          ? analyzeImageMetadata(base64Image, uploadedFile.name, uploadedFile.type)
+          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type)
           : Promise.resolve({ success: false, analysis: null }),
       ]);
 
-      // ── Step 4: Store result ──
-      setVerifyStep('Committing to ledger...');
-      await storeVerificationResult(fileHash, result, { fileName: uploadedFile.name, timestamp: new Date().toISOString() });
+      // Step 3: Store verification result in ledger
+      setVerifyStep('Recording verification result...');
+      if (fileHash || result.verification?.proofId) {
+        await storeVerificationResult(
+          fileHash || result.verification?.proofId,
+          result,
+          metadataPayload
+        );
+      }
 
+      // Step 4: Navigate to ResultScreen
       navigation.navigate('Result', {
-        status: result.verification?.auraFlag === 'RED' ? 'tampered' : 'authentic',
+        status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : 'tampered'),
         verification: result.verification,
-        fileHash,
-        fileName: uploadedFile.name,
+        proof: result.verification?.proofDetails || { id: targetProofId },
+        fileHash: fileHash || result.verification?.hashValidation?.storedHash,
+        fileName: targetFile?.name || targetProofId || 'Shared Media',
+        photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
         mlAnalysis: mlResponse?.analysis || null,
       });
     } catch (err) {
       console.error('Error verifying media:', err);
       setError('Verification failed. Please try again.');
-      Alert.alert('Error', 'Failed to verify media');
+      Alert.alert('Verification Failed', err.message || 'Could not verify media proof.');
     } finally {
       setIsVerifying(false);
       setVerifyStep('');
@@ -260,37 +385,113 @@ export const VerificationScreen = ({ navigation, theme }) => {
           </Card>
         )}
 
-        {/* Upload Area */}
-        <Pressable
-          onPress={handleUpload}
-          disabled={isVerifying}
-          style={({ pressed }) => [
-            styles.uploadArea,
-            uploadedFile && styles.uploadAreaFilled,
-            pressed && { opacity: 0.8 },
-          ]}
-        >
-          {uploadedFile ? (
-            <View style={styles.fileInfo}>
-              <View style={styles.fileIconCircle}>
-                <Text style={styles.fileCheck}>✓</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fileName} numberOfLines={1}>{uploadedFile.name}</Text>
-                <Text style={styles.fileSize}>{uploadedFile.size}</Text>
-              </View>
-              <Text style={styles.changeLink}>Change</Text>
-            </View>
-          ) : (
-            <View style={styles.uploadPlaceholder}>
-              <Text style={styles.uploadIcon}>🛡️</Text>
-              <Text style={styles.uploadTitle}>Verify Authenticity</Text>
-              <Text style={styles.uploadHint}>Upload photo to validate A.U.R.A. seal</Text>
-            </View>
-          )}
-        </Pressable>
+        {/* Tab Switcher */}
+        <View style={styles.tabRow}>
+          <Pressable
+            onPress={() => setActiveTab('upload')}
+            style={[styles.tabButton, activeTab === 'upload' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, activeTab === 'upload' && styles.tabTextActive]}>📁 Upload</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab('proofId')}
+            style={[styles.tabButton, activeTab === 'proofId' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, activeTab === 'proofId' && styles.tabTextActive]}>🔢 Proof ID</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setActiveTab('qrScan');
+              if (!permission?.granted) requestPermission();
+            }}
+            style={[styles.tabButton, activeTab === 'qrScan' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, activeTab === 'qrScan' && styles.tabTextActive]}>📷 Scan QR</Text>
+          </Pressable>
+        </View>
 
-        {/* What We Check */}
+        {/* Tab 1: Upload Photo */}
+        {activeTab === 'upload' && (
+          <Pressable
+            onPress={handleUpload}
+            disabled={isVerifying}
+            style={({ pressed }) => [
+              styles.uploadArea,
+              uploadedFile && styles.uploadAreaFilled,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            {uploadedFile ? (
+              <View style={styles.fileInfo}>
+                <View style={styles.fileIconCircle}>
+                  <Text style={styles.fileCheck}>✓</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fileName} numberOfLines={1}>{uploadedFile.name}</Text>
+                  <Text style={styles.fileSize}>{uploadedFile.size}</Text>
+                </View>
+                <Text style={styles.changeLink}>Change</Text>
+              </View>
+            ) : (
+              <View style={styles.uploadPlaceholder}>
+                <Text style={styles.uploadIcon}>🛡️</Text>
+                <Text style={styles.uploadTitle}>Verify Photo</Text>
+                <Text style={styles.uploadHint}>Upload photo to validate A.U.R.A. seal</Text>
+              </View>
+            )}
+          </Pressable>
+        )}
+
+        {/* Tab 2: Enter Proof ID */}
+        {activeTab === 'proofId' && (
+          <Card theme={theme}>
+            <Text style={styles.inputLabel}>ENTER AURA PROOF ID</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. AURA-8F9A-2B4C-71D2"
+              placeholderTextColor={theme.colors.textMuted}
+              value={proofIdInput}
+              onChangeText={(txt) => setProofIdInput(txt.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            <Text style={styles.uploadHint}>
+              Enter the 16-character Proof ID from the lower banner of any shared AURA photo.
+            </Text>
+          </Card>
+        )}
+
+        {/* Tab 3: Scan QR Code */}
+        {activeTab === 'qrScan' && (
+          <Card theme={theme}>
+            <Text style={styles.qrHintText}>Point camera at the AURA Proof Card QR Code</Text>
+            {permission?.granted ? (
+              <View style={styles.cameraScannerContainer}>
+                <CameraView
+                  style={{ flex: 1 }}
+                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  onBarcodeScanned={handleBarcodeScanned}
+                />
+              </View>
+            ) : (
+              <Button
+                title="Grant Camera Permission to Scan QR"
+                onPress={requestPermission}
+                variant="secondary"
+                size="medium"
+                theme={theme}
+                style={{ marginBottom: theme.spacing.md }}
+              />
+            )}
+            {qrScannedData ? (
+              <Text style={[styles.inputLabel, { color: theme.colors.accent, textAlign: 'center' }]}>
+                Scanned Proof ID: {qrScannedData}
+              </Text>
+            ) : null}
+          </Card>
+        )}
+
+        {/* Protocol Checks Summary */}
         <SectionTitle title="A.U.R.A. PROTOCOL CHECKS" theme={theme} />
         <Card theme={theme}>
           <CheckRow icon="⚛️" label="Environmental Physics" desc="Check light/magnetic consistency" theme={theme} />
@@ -300,9 +501,9 @@ export const VerificationScreen = ({ navigation, theme }) => {
           <CheckRow icon="🔐" label="Cryptographic Match" desc="Validate SHA-256 seal integrity" theme={theme} />
         </Card>
 
-        {/* Verifying */}
+        {/* Verifying Spinner */}
         {isVerifying && (
-          <Card theme={theme}>
+          <Card theme={theme} style={{ marginTop: theme.spacing.md }}>
             <View style={styles.verifyingRow}>
               <LoadingSpinner theme={theme} size={24} />
               <Text style={styles.verifyingText}>{verifyStep || 'Running verification checks...'}</Text>
@@ -312,13 +513,13 @@ export const VerificationScreen = ({ navigation, theme }) => {
 
         {/* Actions */}
         <Button
-          title="Verify"
-          onPress={handleVerify}
+          title="Verify Authenticity"
+          onPress={() => handleUnifiedVerify()}
           variant="primary"
           size="large"
           theme={theme}
-          style={{ marginTop: theme.spacing.sm }}
-          disabled={!uploadedFile || isVerifying}
+          style={{ marginTop: theme.spacing.md }}
+          disabled={isVerifying || (activeTab === 'upload' && !uploadedFile) || (activeTab === 'proofId' && !proofIdInput) || (activeTab === 'qrScan' && !qrScannedData)}
         />
         <Button
           title="Cancel"

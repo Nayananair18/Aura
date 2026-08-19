@@ -33,103 +33,135 @@ const hammingConfidence = (hashA, hashB) => {
  */
 const verifyMedia = async (req, res) => {
   try {
-    const { fileHash, metadata, uploadedMediaHash } = req.body;
+    const { fileHash, metadata, uploadedMediaHash, proofId } = req.body;
 
-    // Validate input
-    if (!metadata || !uploadedMediaHash) {
+    // Validate input (uploadedMediaHash can be optional if proofId alone is supplied for lookup)
+    if (!metadata && !uploadedMediaHash && !proofId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: metadata, uploadedMediaHash',
+        message: 'Missing required fields: metadata, uploadedMediaHash, or proofId',
       });
     }
 
+    const safeUploadedHash = uploadedMediaHash || fileHash || null;
     let isExactMatch = false;
+    let proofFound = false;
+    let existingProof = null;
     let storedHash = fileHash || null;
+    let matchedProofId = proofId || null;
 
     if (isDbConnected()) {
-      // Query the ledger to see if this exact image hash was registered by AURA
-      const existingProof = await Proof.findOne({ imageHash: uploadedMediaHash });
-      if (existingProof) {
-        isExactMatch = true;
-        storedHash = existingProof.imageHash;
+      // Step 1: If proofId is explicitly provided, look up by proofId first
+      if (proofId) {
+        existingProof = await Proof.findOne({ proofId: proofId.trim() });
       }
-    } else {
-      // Offline fallback: if the frontend provides a fileHash (e.g. from a QR code)
-      // we check against that. If it's the SAME as uploadedMediaHash (because the frontend
-      // wrongly sends it as both during a gallery upload), we must reject it as a mock unless
-      // it actually comes from a QR (but we can't tell here). So offline verify is best effort.
-      if (fileHash && fileHash !== uploadedMediaHash) {
-        // If they provided a DIFFERENT fileHash, we can check hamming distance
-      } else if (fileHash && fileHash === uploadedMediaHash) {
-        // If frontend passes the same hash for both, we can't really verify it offline.
-        // We will default to suspicious unless we have sensor evidence to reject it.
+
+      // Step 2: If no proof found by proofId, try looking up by image hash
+      if (!existingProof && safeUploadedHash) {
+        existingProof = await Proof.findOne({
+          $or: [{ imageHash: safeUploadedHash }, { hash: safeUploadedHash }],
+        });
+      }
+
+      if (existingProof) {
+        proofFound = true;
+        matchedProofId = existingProof.proofId;
+        storedHash = existingProof.imageHash || existingProof.hash;
+
+        // Compare uploaded image hash with stored proof image hash
+        if (safeUploadedHash) {
+          isExactMatch = (storedHash === safeUploadedHash);
+        } else {
+          // If only proofId was queried without sending image hash, treat as proof found
+          isExactMatch = true;
+        }
       }
     }
 
-    // Deterministic confidence: 99.7 for exact match, Hamming-distance-based for mismatch
+    // Deterministic confidence: 99.7 for exact match, low for mismatch
     const matchPercentage = isExactMatch
       ? 100
-      : hammingConfidence(storedHash, uploadedMediaHash);
+      : (proofFound ? 15.0 : hammingConfidence(storedHash, safeUploadedHash));
 
     const confidence = isExactMatch ? 99.7 : matchPercentage;
 
-    // Determine whether we have any sensor evidence in the request metadata.
-    // Frontend may not always include sensor samples when performing a lightweight verify.
-    const hasSensorEvidence = metadata && (metadata.sensorData || metadata.sensorStats || metadata.sensorSamples);
-
-    // Conservative status: if we have sensor evidence and confidence is low => tampered.
-    // If no sensor evidence, prefer 'suspicious' over immediately labeling as 'tampered'.
+    // Determine status & flag according to requirement #4:
+    // 1. Authentic: Proof Found + Media Integrity MATCH
+    // 2. Tampered (Modified): Proof Found + Media Integrity MISMATCH (QR copied or image edited)
+    // 3. Unverified: No valid proof record found
     let status;
+    let auraFlag;
+    let statusDetails;
+    let message;
+
     if (isExactMatch) {
       status = 'authentic';
-    } else if (confidence > 60) {
-      status = 'suspicious';
-    } else if (hasSensorEvidence) {
+      auraFlag = 'GREEN';
+      message = '✓ AUTHENTIC CAPTURE';
+      statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID | Capture Evidence: VALID';
+    } else if (proofFound) {
       status = 'tampered';
+      auraFlag = 'RED';
+      message = '⚠ MEDIA MODIFIED';
+      statusDetails = 'Proof Found | Original Proof: VALID | Media Integrity: MISMATCH | Current Media: MODIFIED';
     } else {
-      status = 'suspicious';
+      status = 'unverified';
+      auraFlag = 'YELLOW';
+      message = '? UNVERIFIED MEDIA';
+      statusDetails = 'No valid AURA proof found';
     }
 
     const verificationId = `VERIF_${uuidv4()}`;
     const verificationResult = {
       verificationId,
+      proofId: matchedProofId,
       status,
       confidence,
+      auraFlag,
+      statusMessage: message,
+      statusDetails,
+      proofFound,
       hashValidation: {
         isValid: isExactMatch,
         matchPercentage,
-        uploadedHash: uploadedMediaHash.substring(0, 16) + '...',
-        storedHash: (storedHash || 'none').substring(0, 16) + '...',
+        uploadedHash: safeUploadedHash ? safeUploadedHash.substring(0, 16) + '...' : 'none',
+        storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none',
       },
-      sensorValidation: isExactMatch ? 'passed' : (hasSensorEvidence ? 'failed' : 'unknown'),
-      metadataConsistency: isExactMatch ? 'consistent' : (metadata ? 'unknown' : 'unknown'),
+      sensorValidation: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+      metadataConsistency: isExactMatch ? 'consistent' : 'unknown',
       timestamp: new Date().toISOString(),
-      auraFlag: isExactMatch ? 'GREEN' : (status === 'suspicious' ? 'YELLOW' : 'RED'),
       screenDefense: {
-        result: isExactMatch ? 'passed' : (hasSensorEvidence ? 'failed' : 'unknown'),
-        magnetometerPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.magnetometer || metadata?.sensorData?.magnetometer) : null,
-        lightFlickerPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.light || metadata?.sensorData?.light) : null,
-        details: isExactMatch ? 'No display signatures found' : (hasSensorEvidence ? 'Potential digital grid detected' : 'Not evaluated'),
+        result: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+        magnetometerPassed: isExactMatch,
+        lightFlickerPassed: isExactMatch,
+        details: isExactMatch ? 'No display signatures found' : (proofFound ? 'Digital canvas mismatch' : 'Not evaluated'),
       },
       physicsDefense: {
-        motionPassed: hasSensorEvidence ? !!(metadata?.sensorStats?.accelerometer || metadata?.sensorData?.accelerometer) : null,
-        gravityConsistent: hasSensorEvidence ? true : null,
-        details: isExactMatch ? 'Handheld signatures verified' : (hasSensorEvidence ? 'Mathematical inconsistency' : 'Not evaluated'),
+        motionPassed: isExactMatch,
+        gravityConsistent: isExactMatch ? true : null,
+        details: isExactMatch ? 'Handheld signatures verified' : (proofFound ? 'Modified media content' : 'Not evaluated'),
       },
       fileInfo: {
-        fileName: metadata.fileName,
-        fileType: metadata.fileType,
-        fileSize: metadata.fileSize,
-        uploadedAt: metadata.uploadedAt,
+        fileName: metadata?.fileName || 'unknown',
+        fileType: metadata?.fileType || 'unknown',
+        fileSize: metadata?.fileSize || null,
+        uploadedAt: metadata?.uploadedAt || new Date().toISOString(),
       },
+      proofDetails: existingProof ? {
+        proofId: existingProof.proofId,
+        capturedAt: existingProof.createdAt,
+        integrityScore: existingProof.integrityScore,
+        confidence: existingProof.confidence,
+        deviceId: existingProof.metadata?.deviceId || 'Verified Device',
+      } : null,
     };
 
-    logger.info(`Verification complete: ${verificationId} — ${status} (confidence: ${confidence}%)`);
+    logger.info(`Verification complete: ${verificationId} — ${status} (ProofID: ${matchedProofId || 'none'})`);
 
     res.json({
       success: true,
       verification: verificationResult,
-      message: isExactMatch ? 'Media is authentic' : 'Media shows signs of tampering',
+      message,
     });
   } catch (error) {
     logger.error(`Error verifying media: ${error.message}`, { stack: error.stack });

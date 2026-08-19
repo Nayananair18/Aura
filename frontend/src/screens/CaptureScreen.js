@@ -397,12 +397,20 @@ export const CaptureScreen = ({ navigation, theme }) => {
       ]);
       
       let finalPhotoUri = photo?.uri;
+      let galleryResult = null;
       
       // If we received an authenticated (watermarked) image from the backend
       if (proofResponse.proof?.authenticatedImage) {
-        // We can create a temporary file URI or just use the base64 for the result screen
-        // For simplicity in the result screen, we'll prefix the base64
         finalPhotoUri = `data:image/jpeg;base64,${proofResponse.proof.authenticatedImage}`;
+        // Automatically save verified copy to phone gallery ("AURA Verified" album)
+        try {
+          galleryResult = await FileService.saveToPhoneGallery(finalPhotoUri);
+          if (galleryResult?.success) {
+            console.log('[CaptureScreen] Verified image saved to AURA Verified album!');
+          }
+        } catch (gErr) {
+          console.warn('[CaptureScreen] Gallery save error:', gErr.message);
+        }
       }
 
       // integrityAnalysis lives inside proof on the backend response.
@@ -411,6 +419,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
       const integrity = proofResponse.proof?.integrityAnalysis || {};
       const verification = {
         ...integrity,
+        proofId: proofResponse.proof?.id,
         // Hash match — backend doesn't compare hashes during capture, so show 100% for authentic
         hashValidation: {
           matchPercentage: proofResponse.status === 'authentic' ? 100 : 0,
@@ -437,6 +446,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
         metadata, 
         photoData: { ...photo, uri: finalPhotoUri },
         mlAnalysis: mlResponse?.analysis || null,
+        galleryResult,
       });
     } catch (err) {
       console.error('Error generating proof:', err);
