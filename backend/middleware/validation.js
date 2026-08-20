@@ -35,7 +35,7 @@ const validateVerifyMedia = [
 const validateStoreResult = [
   body('mediaHash').notEmpty().withMessage('Media hash is required'),
   body('verificationResult').isObject().withMessage('Verification result is required'),
-  body('metadata').isObject().withMessage('Metadata is required'),
+  body('metadata').optional().isObject().withMessage('Metadata must be an object'),
 ];
 
 /**

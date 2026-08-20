@@ -160,7 +160,8 @@ const generateAuthenticityProof = async (req, res) => {
       timestamp: new Date().toISOString(),
       deviceId: metadata.deviceId,
       capturedAt: metadata.capturedAt,
-      authenticatedImage: watermarkedImage, // Return the watermarked image to frontend
+      authenticatedImage: watermarkedImage,
+      exif: metadata?.exif || null,
     };
 
     res.json({

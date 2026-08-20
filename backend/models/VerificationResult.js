@@ -25,13 +25,15 @@ const VerificationResultSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['authentic', 'tampered', 'inconclusive'],
+      enum: ['authentic', 'tampered', 'inconclusive', 'unverified'],
+      default: 'unverified',
       required: true,
     },
     confidence: {
       type: Number,
       min: 0,
       max: 100,
+      default: 0,
       required: true,
     },
     metadata: {
