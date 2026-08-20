@@ -299,22 +299,37 @@ const mockGetHistory = () =>
 const mockAnalyzeMetadata = (fileName) =>
   new Promise((resolve) => {
     setTimeout(() => {
-      // Randomly simulate different classifications for dev testing
+      // Simulate 4 possible classifications for dev testing
+      // roll 0.00–0.24 = REAL, 0.25–0.49 = NOT_VERIFIED, 0.50–0.74 = AI, 0.75–1.0 = SCREEN_RECAPTURE
       const roll = Math.random();
-      const isAI = roll > 0.55;
-      const isUncertain = roll > 0.35 && roll <= 0.55;
+      const isAI      = roll >= 0.50 && roll < 0.75;
+      const isScreen  = roll >= 0.75;
+      const isReal    = roll < 0.25;
+      // else NOT_VERIFIED
+
       const aiProb = isAI
         ? parseFloat((70 + Math.random() * 25).toFixed(1))
-        : isUncertain
-        ? parseFloat((40 + Math.random() * 25).toFixed(1))
-        : parseFloat((5 + Math.random() * 30).toFixed(1));
+        : isReal
+        ? parseFloat((5 + Math.random() * 20).toFixed(1))
+        : parseFloat((30 + Math.random() * 35).toFixed(1));
 
-      const classification = isAI ? 'AI_GENERATED' : isUncertain ? 'UNCERTAIN' : 'REAL_CAMERA';
+      const screenProb = isScreen
+        ? parseFloat((65 + Math.random() * 30).toFixed(1))
+        : parseFloat((5 + Math.random() * 40).toFixed(1));
+      const screenScore = parseFloat((screenProb / 100).toFixed(4));
+
+      const classification = isScreen ? 'SCREEN_RECAPTURE'
+        : isAI ? 'AI_GENERATED'
+        : isReal ? 'REAL'
+        : 'NOT_VERIFIED';
+
       const confidence = isAI
         ? parseFloat((aiProb + 5).toFixed(1))
-        : isUncertain
-        ? parseFloat((40 + Math.abs(aiProb - 52.5)).toFixed(1))
-        : parseFloat((100 - aiProb + 5).toFixed(1));
+        : isScreen
+        ? parseFloat((screenProb + 5).toFixed(1))
+        : isReal
+        ? parseFloat((100 - aiProb + 5).toFixed(1))
+        : parseFloat((40 + Math.abs(aiProb - 50)).toFixed(1));
 
       const MOCK_SIGNALS = [
         { id: 'missing_camera_make', label: 'No Camera Manufacturer', weight: 15, triggered: isAI, score: isAI ? 15 : 0, detail: isAI ? 'Real cameras embed Make field.' : null },
@@ -322,11 +337,42 @@ const mockAnalyzeMetadata = (fileName) =>
         { id: 'known_ai_software', label: 'AI Software Tag Detected', weight: 20, triggered: isAI, score: isAI ? 20 : 0, detail: isAI ? 'Software tag: "Stable Diffusion"' : null },
         { id: 'missing_shutter_speed', label: 'No Shutter Speed', weight: 10, triggered: isAI, score: isAI ? 10 : 0, detail: isAI ? 'Real cameras always record shutter.' : null },
         { id: 'missing_aperture', label: 'No Aperture (f-stop)', weight: 8, triggered: isAI, score: isAI ? 8 : 0, detail: isAI ? 'No physical aperture recorded.' : null },
-        { id: 'missing_iso', label: 'No ISO Sensitivity', weight: 6, triggered: isUncertain || isAI, score: isAI ? 6 : 0, detail: 'ISO is a core camera parameter.' },
+        { id: 'missing_iso', label: 'No ISO Sensitivity', weight: 6, triggered: isAI, score: isAI ? 6 : 0, detail: 'ISO is a core camera parameter.' },
         { id: 'missing_gps', label: 'No GPS Coordinates', weight: 5, triggered: true, score: 0, detail: null },
         { id: 'xmp_prompt_field', label: 'XMP Prompt / Parameters', weight: 25, triggered: isAI && Math.random() > 0.4, score: isAI && Math.random() > 0.4 ? 25 : 0, detail: isAI ? 'XMP contains generation parameters.' : null },
         { id: 'power_of_two_dimensions', label: 'Power-of-2 Dimensions', weight: 8, triggered: isAI, score: isAI ? 8 : 0, detail: isAI ? 'Dimensions match AI model output.' : null },
         { id: 'missing_focal_length', label: 'No Focal Length', weight: 6, triggered: isAI, score: isAI ? 6 : 0, detail: isAI ? 'No optical focal length present.' : null },
+      ];
+
+      // Mock screen recapture signals
+      const mockScreenSignals = [
+        {
+          id: 'screen_moire',
+          label: 'Moiré / Pixel Grid Interference',
+          score: isScreen ? parseFloat((55 + Math.random() * 40).toFixed(1)) : parseFloat((5 + Math.random() * 30).toFixed(1)),
+          rawScore: isScreen ? 0.65 : 0.1,
+          weight: 0.40,
+          triggered: isScreen,
+          detail: isScreen ? 'Periodic frequency peaks consistent with camera–display interference' : null,
+        },
+        {
+          id: 'screen_banding',
+          label: 'Display Banding / Refresh Artifacts',
+          score: isScreen ? parseFloat((50 + Math.random() * 45).toFixed(1)) : parseFloat((5 + Math.random() * 25).toFixed(1)),
+          rawScore: isScreen ? 0.70 : 0.08,
+          weight: 0.35,
+          triggered: isScreen,
+          detail: isScreen ? 'Horizontal brightness banding consistent with display refresh artifacts' : null,
+        },
+        {
+          id: 'screen_rectangle',
+          label: 'Screen Boundary Geometry',
+          score: isScreen ? parseFloat((60 + Math.random() * 35).toFixed(1)) : parseFloat((10 + Math.random() * 30).toFixed(1)),
+          rawScore: isScreen ? 0.75 : 0.2,
+          weight: 0.25,
+          triggered: isScreen,
+          detail: isScreen ? 'Strong rectangular edge structure consistent with screen bezel' : null,
+        },
       ];
 
       resolve({
@@ -336,13 +382,18 @@ const mockAnalyzeMetadata = (fileName) =>
           aiProbability: aiProb,
           realProbability: parseFloat((100 - aiProb).toFixed(1)),
           confidence: Math.min(confidence, 100),
+          // Screen recapture fields
+          screenScore,
+          screenProbability: screenProb,
+          screenSignals: mockScreenSignals,
+          screenAnalysisSuccess: true,
           // KNN details
           kValue: 5,
-          aiVotes: isAI ? 5 : (isUncertain ? 3 : 0),
-          realVotes: isAI ? 0 : (isUncertain ? 2 : 5),
+          aiVotes: isAI ? 5 : (classification === 'NOT_VERIFIED' ? 3 : 0),
+          realVotes: isReal ? 5 : (classification === 'NOT_VERIFIED' ? 2 : 0),
           nearestNeighbours: [
-            { source: isAI ? 'stable_diffusion_full' : 'iphone_portrait', label: isAI ? 'AI_GENERATED' : 'REAL_CAMERA' },
-            { source: isAI ? 'midjourney' : 'samsung_galaxy', label: isAI ? 'AI_GENERATED' : 'REAL_CAMERA' },
+            { source: isAI ? 'stable_diffusion_full' : (isReal ? 'iphone_portrait' : 'ai_minimal_exif'), label: isAI ? 'AI_GENERATED' : (isReal ? 'REAL_CAMERA' : 'AI_GENERATED') },
+            { source: isAI ? 'midjourney' : (isReal ? 'samsung_galaxy' : 'zero_metadata_ai'), label: isAI ? 'AI_GENERATED' : (isReal ? 'REAL_CAMERA' : 'AI_GENERATED') },
           ],
           // Signal breakdown
           triggeredSignalCount: MOCK_SIGNALS.filter(s => s.triggered).length,
@@ -358,6 +409,7 @@ const mockAnalyzeMetadata = (fileName) =>
       });
     }, 1800);
   });
+
 
 
 

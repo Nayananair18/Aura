@@ -14,6 +14,7 @@
 const sharp = require('sharp');
 const { analyzeVisualFeatures } = require('./visualMLAnalyzer');
 const { analyzeELA } = require('./elaAnalyzer');
+const { analyzeScreenRecapture } = require('./screenRecaptureAnalyzer');
 
 // ══════════════════════════════════════════════════════════════════
 //  KNN TRAINING DATA
@@ -399,29 +400,37 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
     knnClassify(featureVector, trainFeatures, trainLabels, K);
   const knnAiProb = aiVoteRatio * 100; // 0–100
 
-  // ── 4. Model B: Visual pixel analysis ──
+  // ── 4. Models B, C, D: Run visual, ELA, and screen analysis in parallel ──
   let visualResult = null;
   let visualAiProb = 50; // neutral default if visual fails
+  let elaResult = null;
+  let elaAiProb = 50;
+  let screenResult = null;
+
   try {
-    visualResult = await analyzeVisualFeatures(imageBuffer);
-    visualAiProb = visualResult.aiProbability;
+    [visualResult, elaResult, screenResult] = await Promise.all([
+      analyzeVisualFeatures(imageBuffer).catch((err) => ({ error: err.message, aiProbability: 50 })),
+      analyzeELA(imageBuffer).catch((err) => ({ success: false, error: err.message, aiProbability: 0.5 })),
+      analyzeScreenRecapture(imageBuffer).catch((err) => ({ success: false, screenScore: 0, screenProbability: 0, signals: [], error: err.message })),
+    ]);
   } catch (err) {
-    // Visual analysis optional — degrade gracefully
+    // Should not reach here due to individual .catch handlers above
     visualResult = { error: err.message, aiProbability: 50 };
   }
 
-  // ── 4.5. Model C: Error Level Analysis (ELA) ──
-  let elaResult = null;
-  let elaAiProb = 50;
-  try {
-    elaResult = await analyzeELA(imageBuffer);
-    if (elaResult.success) {
-      // analyzeELA returns aiProbability in 0.0–1.0 range; convert to 0–100
-      elaAiProb = elaResult.aiProbability * 100;
-    }
-  } catch (err) {
-    elaResult = { error: err.message, aiProbability: 0.5 };
+  // Unwrap visual
+  visualAiProb = visualResult?.aiProbability ?? 50;
+
+  // Unwrap ELA
+  if (elaResult?.success) {
+    // analyzeELA returns aiProbability in 0.0–1.0 range; convert to 0–100
+    elaAiProb = elaResult.aiProbability * 100;
   }
+
+  // Unwrap screen
+  const screenScore       = screenResult?.screenScore ?? 0;
+  const screenProbability = screenResult?.screenProbability ?? 0;
+  const screenSignals     = screenResult?.signals ?? [];
 
   // ── Physical EXIF Presence Score (0 - 100%) ──
   const coreExifChecks = [
@@ -478,17 +487,51 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
     metadataFingerprint.focalLength != null
   );
 
+  // ══════════════════════════════════════════════════════════════════
+  //  CLASSIFICATION DECISION — 4-CLASS WITH PRIORITY ORDER
+  //
+  //  SCREEN_RECAPTURE_THRESHOLD (0.45): Combined screen signal above this
+  //  level is classified as SCREEN_RECAPTURE. Tuned for phone-to-laptop-screen
+  //  captures where moiré + banding signals are detectable but subtle.
+  //
+  //  SCREEN_ELEVATED_THRESHOLD (0.28): Even below the recapture threshold,
+  //  a screen score above this level is enough evidence to prevent REAL
+  //  classification — the image falls to NOT_VERIFIED instead, preserving
+  //  forensic honesty.
+  //
+  //  Decision priority (highest first):
+  //   1. SCREEN_RECAPTURE — if strong screen forensic evidence
+  //   2. AI_GENERATED     — if AI probability is high OR explicit AI tag
+  //   3. REAL             — if low AI probability AND has hardware EXIF
+  //                         AND no elevated screen signal
+  //   4. NOT_VERIFIED     — insufficient or conflicting evidence
+  //
+  //  IMPORTANT: Valid phone EXIF does NOT prevent SCREEN_RECAPTURE.
+  //  A phone photographing a laptop screen produces real phone EXIF.
+  // ══════════════════════════════════════════════════════════════════
+  const SCREEN_RECAPTURE_THRESHOLD = 0.40; // calibrated tunable constant
+  const SCREEN_ELEVATED_THRESHOLD = 0.25;
+
   let classification;
   let confidence;
-  if (aiProbability >= 70) {
+
+  if (screenScore >= SCREEN_RECAPTURE_THRESHOLD) {
+    // Screen forensic evidence is dominant — classify as SCREEN_RECAPTURE
+    // regardless of EXIF validity (phone EXIF does not disprove screen capture)
+    classification = 'SCREEN_RECAPTURE';
+    confidence = parseFloat(Math.min(screenProbability + 5, 100).toFixed(1));
+  } else if (isExplicitAi) {
+    // Explicit AI generation tag or prompt found in XMP / EXIF metadata
     classification = 'AI_GENERATED';
     confidence = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
-  } else if (aiProbability < 25 && hasHardwareExif) {
-    // REAL_CAMERA if hardware EXIF is verified and AI prob < 25%
-    classification = 'REAL_CAMERA';
+  } else if (aiProbability < 35 && hasHardwareExif && screenScore < SCREEN_ELEVATED_THRESHOLD) {
+    // REAL: low AI probability + verified hardware EXIF + NO elevated screen signal
+    classification = 'REAL';
     confidence = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
   } else {
-    classification = 'UNCERTAIN';
+    // Ambiguous, stripped EXIF (social media upload), conflicting, or insufficient evidence:
+    // Strict AURA Rule: "No Physical Proof = Not Verified"
+    classification = 'NOT_VERIFIED';
     confidence = parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
   }
 
@@ -579,13 +622,13 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   }));
 
   return {
-    // Ensemble result
-    classification,
+    // ── Ensemble result ──
+    classification,           // 'REAL' | 'AI_GENERATED' | 'SCREEN_RECAPTURE' | 'NOT_VERIFIED'
     aiProbability,
     realProbability,
     confidence,
 
-    // Model A — KNN metadata
+    // ── Model A — KNN metadata ──
     knnAiProbability: parseFloat(knnAiProb.toFixed(1)),
     kValue: K,
     aiVotes: bincount[1],
@@ -593,25 +636,33 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
     nearestNeighbours,
     featureVector,
 
-    // Model B — Visual pixel
+    // ── Model B — Visual pixel ──
     visualAiProbability: parseFloat(visualAiProb.toFixed(1)),
     visualFeatures: visualResult?.features || null,
     visualError: visualResult?.error || null,
 
-    // Model C — ELA
+    // ── Model C — ELA ──
     elaAiProbability: parseFloat(elaAiProb.toFixed(1)),
     elaMetrics: elaResult?.success ? elaResult.metrics : null,
 
-    // Weights used
+    // ── Model D — Screen Recapture (independent dimension) ──
+    // screenScore is NOT folded into aiProbability.
+    // It is evaluated separately and takes decision priority.
+    screenScore:       parseFloat(screenScore.toFixed(4)),
+    screenProbability: parseFloat(screenProbability.toFixed(1)),
+    screenSignals,
+    screenAnalysisSuccess: screenResult?.success ?? false,
+
+    // ── Weights used for AI ensemble ──
     ensembleWeights: { knn: W_KNN, visual: W_VISUAL, ela: W_ELA },
 
-    // Signal breakdown
+    // ── Signal breakdown (EXIF + visual signals) ──
     triggeredSignalCount: triggeredSignals.length,
     totalSignalCount: signals.length,
     signals,
     triggeredSignals,
 
-    // Raw
+    // ── Raw ──
     metadataFingerprint,
     imageStats: sharpStats,
     analyzedAt: new Date().toISOString(),

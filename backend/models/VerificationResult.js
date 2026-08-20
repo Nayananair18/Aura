@@ -25,7 +25,9 @@ const VerificationResultSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['authentic', 'tampered', 'inconclusive', 'unverified'],
+      // Legacy: 'authentic', 'tampered', 'inconclusive', 'unverified'
+      // New (v2): 'screen_recapture', 'not_verified'
+      enum: ['authentic', 'tampered', 'inconclusive', 'unverified', 'screen_recapture', 'not_verified'],
       default: 'unverified',
       required: true,
     },

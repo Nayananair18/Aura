@@ -25,12 +25,24 @@ const CLASS_CONFIG = {
   AI_GENERATED: {
     label: 'AI GENERATED',
     emoji: '🤖',
-    tagline: 'Metadata fingerprint matches AI synthesis',
+    tagline: 'Metadata fingerprint matches AI synthesis patterns',
     color: (colors) => colors.tampered || '#EF4444',
     gaugeColor: '#EF4444',
     badgeBg: '#EF444420',
     badgeBorder: '#EF4444',
+    gaugeLabel: 'AI PROB',
   },
+  REAL: {
+    label: 'REAL CAMERA',
+    emoji: '📷',
+    tagline: 'Physical camera metadata verified',
+    color: (colors) => colors.authentic || '#22C55E',
+    gaugeColor: '#22C55E',
+    badgeBg: '#22C55E20',
+    badgeBorder: '#22C55E',
+    gaugeLabel: 'AI PROB',
+  },
+  // Backward-compat alias for backend returning 'REAL_CAMERA'
   REAL_CAMERA: {
     label: 'REAL CAMERA',
     emoji: '📷',
@@ -39,15 +51,38 @@ const CLASS_CONFIG = {
     gaugeColor: '#22C55E',
     badgeBg: '#22C55E20',
     badgeBorder: '#22C55E',
+    gaugeLabel: 'AI PROB',
   },
-  UNCERTAIN: {
-    label: 'UNCERTAIN',
+  SCREEN_RECAPTURE: {
+    label: 'SCREEN RECAPTURE',
+    emoji: '🖥️',
+    tagline: 'This image appears to be a photograph of content on a digital screen',
+    color: () => '#8B5CF6',
+    gaugeColor: '#8B5CF6',
+    badgeBg: '#8B5CF620',
+    badgeBorder: '#8B5CF6',
+    gaugeLabel: 'SCREEN %',
+  },
+  NOT_VERIFIED: {
+    label: 'NOT VERIFIED',
     emoji: '⚠️',
-    tagline: 'Metadata signals are ambiguous',
+    tagline: 'Insufficient or conflicting forensic evidence to classify this image',
     color: (colors) => colors.warning || '#F59E0B',
     gaugeColor: '#F59E0B',
     badgeBg: '#F59E0B20',
     badgeBorder: '#F59E0B',
+    gaugeLabel: 'AI PROB',
+  },
+  // Backward-compat alias for backend returning 'UNCERTAIN'
+  UNCERTAIN: {
+    label: 'NOT VERIFIED',
+    emoji: '⚠️',
+    tagline: 'Metadata signals are ambiguous or insufficient',
+    color: (colors) => colors.warning || '#F59E0B',
+    gaugeColor: '#F59E0B',
+    badgeBg: '#F59E0B20',
+    badgeBorder: '#F59E0B',
+    gaugeLabel: 'AI PROB',
   },
 };
 
@@ -57,13 +92,11 @@ const CLASS_CONFIG = {
  * SVG-free circular gauge using border-radius arcs.
  * Renders a styled probability percentage ring.
  */
-const CircularGauge = ({ value, color, size = 120, theme }) => {
+const CircularGauge = ({ value, color, size = 120, label = 'AI PROB', theme }) => {
   const { colors } = theme;
   const strokeWidth = 8;
-  const radius = (size - strokeWidth * 2) / 2;
 
   // We simulate the arc using two overlapping semicircles (pure RN approach)
-  const rotation = Math.min(value, 100) * 3.6; // degrees
 
   return (
     <View
@@ -137,7 +170,7 @@ const CircularGauge = ({ value, color, size = 120, theme }) => {
             marginTop: 1,
           }}
         >
-          AI PROB
+          {label}
         </Text>
       </View>
     </View>
@@ -371,8 +404,13 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
           }}
         >
           <CircularGauge
-            value={analysis.aiProbability}
+            value={
+              analysis.classification === 'SCREEN_RECAPTURE'
+                ? (analysis.screenProbability ?? analysis.aiProbability)
+                : analysis.aiProbability
+            }
             color={cfg.gaugeColor}
+            label={cfg.gaugeLabel || 'AI PROB'}
             size={110}
             theme={theme}
           />
@@ -537,6 +575,42 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
               </Text>
             </View>
 
+            {/* Screen Recapture Forensics sub-section */}
+            {analysis.screenSignals && analysis.screenSignals.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: colors.surface,
+                  borderRadius: 10,
+                  padding: spacing.sm,
+                  marginBottom: spacing.md,
+                  borderLeftWidth: 3,
+                  borderLeftColor: '#8B5CF6',
+                }}
+              >
+                <Text style={{ fontSize: 10, color: '#8B5CF6', fontWeight: '700', marginBottom: spacing.xs, letterSpacing: 0.5 }}>
+                  SCREEN RECAPTURE FORENSICS
+                </Text>
+
+                {analysis.screenSignals.map((sig) => (
+                  <View key={sig.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={{ fontSize: 11, color: sig.triggered ? colors.text : colors.textSecondary, width: 160 }}>
+                      {sig.triggered ? '🟣 ' : '○ '}{sig.label}
+                    </Text>
+                    <View style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden', marginHorizontal: 8 }}>
+                      <View style={{ width: `${Math.min(sig.score, 100)}%`, height: '100%', borderRadius: 3, backgroundColor: sig.triggered ? '#8B5CF6' : colors.textMuted }} />
+                    </View>
+                    <Text style={{ fontSize: 11, color: sig.triggered ? '#8B5CF6' : colors.textMuted, fontWeight: '700', width: 36, textAlign: 'right' }}>
+                      {sig.score}%
+                    </Text>
+                  </View>
+                ))}
+
+                <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 4 }}>
+                  Combined screen score: {(analysis.screenScore * 100).toFixed(0)}% (threshold: 60%)
+                </Text>
+              </View>
+            )}
+
             {/* Error Level Analysis (ELA) Model */}
             {analysis.elaAiProbability != null && (
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
@@ -629,7 +703,7 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
                   color: triggeredCount > 0 ? '#EF4444' : '#22C55E',
                 }}
               >
-                {triggeredCount} AI indicators
+            {triggeredCount} forensic indicators
               </Text>
             </View>
           </View>
