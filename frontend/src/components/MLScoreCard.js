@@ -24,25 +24,16 @@ import { Card } from './Card';
 const CLASS_CONFIG = {
   AI_GENERATED: {
     label: 'AI GENERATED',
-    emoji: '??',
+    emoji: '🤖',
     tagline: 'Metadata fingerprint matches AI synthesis',
     color: (colors) => colors.tampered || '#EF4444',
     gaugeColor: '#EF4444',
     badgeBg: '#EF444420',
     badgeBorder: '#EF4444',
   },
-  AUTHENTIC_CAMERA: {
-    label: 'AUTHENTIC CAMERA',
-    emoji: '??',
-    tagline: 'Physical camera hardware EXIF verified',
-    color: (colors) => colors.authentic || '#22C55E',
-    gaugeColor: '#22C55E',
-    badgeBg: '#22C55E20',
-    badgeBorder: '#22C55E',
-  },
   REAL_CAMERA: {
     label: 'REAL CAMERA',
-    emoji: '??',
+    emoji: '📷',
     tagline: 'Physical camera metadata verified',
     color: (colors) => colors.authentic || '#22C55E',
     gaugeColor: '#22C55E',
@@ -51,8 +42,8 @@ const CLASS_CONFIG = {
   },
   UNCERTAIN: {
     label: 'UNCERTAIN',
-    emoji: '??',
-    tagline: 'Metadata signals are ambiguous / Unverified',
+    emoji: '⚠️',
+    tagline: 'Metadata signals are ambiguous',
     color: (colors) => colors.warning || '#F59E0B',
     gaugeColor: '#F59E0B',
     badgeBg: '#F59E0B20',
