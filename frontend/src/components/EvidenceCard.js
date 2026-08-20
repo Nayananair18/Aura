@@ -87,37 +87,41 @@ const EVIDENCE_FIELDS = [
     weight: 'medium',
     explanation: 'Physical lenses embed their focal length in every shot. AI has no optics.',
   },
-  {
+    {
     id: 'gps',
     label: 'GPS Coordinates',
     icon: '📍',
-    getValue: (fp) => (fp?.latitude != null && fp?.longitude != null)
-      ? { lat: fp.latitude, lon: fp.longitude }
-      : null,
+    getValue: (fp) => {
+      if (!fp) return null;
+      const lat = fp.latitude ?? fp.gpsLatitude ?? fp.GPSLatitude ?? fp['{GPS}']?.Latitude ?? fp['{GPS}']?.GPSLatitude ?? null;
+      const lon = fp.longitude ?? fp.gpsLongitude ?? fp.GPSLongitude ?? fp['{GPS}']?.Longitude ?? fp['{GPS}']?.GPSLongitude ?? null;
+      return (lat != null && lon != null) ? { lat: Number(lat), lon: Number(lon) } : null;
+    },
     isReal: (val) => val != null,
     realText: (val) => `${parseFloat(val.lat).toFixed(4)}°, ${parseFloat(val.lon).toFixed(4)}°`,
     fakeText: () => 'MISSING',
     weight: 'medium',
-    explanation: 'Smartphone cameras embed GPS at capture. Absent coordinates weaken the authenticity case.',
+    explanation: 'Smartphone cameras embed GPS at capture. Coordinates verify physical spatiotemporal ground truth.',
   },
-  {
+    {
     id: 'software',
     label: 'Software Tag',
     icon: '💻',
     getValue: (fp) => fp?.software || null,
     isReal: (val) => {
-      if (!val) return true; // absent is neutral — not all cameras embed software
+      if (!val || typeof val !== 'string' || val.trim() === '') return false; // Missing firmware string is NOT real
       const AI_TOOLS = [
-        'stable diffusion', 'dall-e', 'midjourney', 'adobe firefly',
+        'stable diffusion', 'dall-e', 'dall·e', 'midjourney', 'adobe firefly',
         'dreamstudio', 'runway', 'novelai', 'automatic1111', 'comfyui',
         'invoke ai', 'image creator', 'canva ai', 'ideogram', 'gpt-4o',
+        'photoshop', 'gimp', 'canvas',
       ];
       return !AI_TOOLS.some((t) => val.toLowerCase().includes(t));
     },
-    realText: (val) => val || 'Camera Firmware',
-    fakeText: (val) => val || 'AI Tool Detected',
-    weight: 'critical',
-    explanation: 'If the software tag matches a known AI generation tool (Stable Diffusion, DALL-E, Midjourney…) it is a definitive fingerprint of synthetic origin.',
+    realText: (val) => val,
+    fakeText: (val) => (val ? `Synthetic Tool (${val})` : 'MISSING'),
+    weight: 'high',
+    explanation: 'Real cameras embed manufacturer firmware strings. Missing or AI tool strings indicate synthetic or stripped origins.',
   },
   {
     id: 'exif_version',
@@ -354,7 +358,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
-    gap: 8,
+    gap: 10,
+    minHeight: 48,
   },
   dot: {
     width: 8,
@@ -363,24 +368,32 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   rowIcon: {
-    fontSize: 15,
-    width: 20,
+    fontSize: 16,
+    width: 22,
     textAlign: 'center',
+    flexShrink: 0,
+  },
+  rowLabelContainer: {
+    flex: 1,
+    justifyContent: 'center',
   },
   rowLabel: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+    lineHeight: 18,
   },
   rowValue: {
     fontSize: 11,
-    marginTop: 1,
+    marginTop: 2,
     fontFamily: 'monospace',
+    lineHeight: 15,
   },
   weightBadge: {
     borderWidth: 1,
     borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    flexShrink: 0,
   },
   weightText: {
     fontSize: 8,
@@ -388,8 +401,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   chevron: {
-    fontSize: 9,
+    fontSize: 10,
     marginLeft: 2,
+    flexShrink: 0,
   },
   explanation: {
     marginBottom: 8,

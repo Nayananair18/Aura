@@ -336,25 +336,30 @@ export const VerificationScreen = ({ navigation, theme }) => {
           : Promise.resolve({ success: false, analysis: null }),
       ]);
 
-      // Step 3: Store verification result in ledger
+            // Step 3: Store verification result in ledger
       setVerifyStep('Recording verification result...');
       if (fileHash || result.verification?.proofId) {
-        await storeVerificationResult(
-          fileHash || result.verification?.proofId,
-          result,
-          metadataPayload
-        );
+        try {
+          await storeVerificationResult(
+            fileHash || result.verification?.proofId,
+            result.verification || result,
+            metadataPayload
+          );
+        } catch (storeErr) {
+          console.warn('[VerificationScreen] Store verification result warning:', storeErr.message);
+        }
       }
 
-      // Step 4: Navigate to ResultScreen
+            // Step 4: Navigate to ResultScreen
       navigation.navigate('Result', {
-        status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : 'tampered'),
+        status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : (result.verification?.auraFlag === 'YELLOW' ? 'unverified' : 'tampered')),
         verification: result.verification,
         proof: result.verification?.proofDetails || { id: targetProofId },
         fileHash: fileHash || result.verification?.hashValidation?.storedHash,
         fileName: targetFile?.name || targetProofId || 'Shared Media',
         photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
         mlAnalysis: mlResponse?.analysis || null,
+        isCaptureMode: false,
       });
     } catch (err) {
       console.error('Error verifying media:', err);

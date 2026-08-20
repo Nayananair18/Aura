@@ -7,12 +7,15 @@ const resolveApiBaseUrl = () => {
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.REACT_NATIVE_API_BASE_URL;
 
-  if (envUrl) return envUrl;
+  if (envUrl && envUrl.trim() !== '') return envUrl.trim();
 
   const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
   if (hostUri) {
     const host = hostUri.split(':')[0];
-    return `http://${host}:3001/api`;
+    // If running in tunnel mode, host is non-numeric domain
+    if (host && !host.includes('exp.direct') && !host.includes('ngrok')) {
+      return `http://${host}:3001/api`;
+    }
   }
 
   if (Platform.OS === 'android') {
@@ -25,7 +28,7 @@ const resolveApiBaseUrl = () => {
 const API_BASE_URL = resolveApiBaseUrl();
 console.log(`[AURA API] Gateway: ${API_BASE_URL}`);
 
-// Drive USE_MOCK_API from env — never hardcode
+// Drive USE_MOCK_API from env
 const USE_MOCK_API = process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
 if (USE_MOCK_API) console.warn('[AURA API] ⚠️ MOCK MODE ENABLED via EXPO_PUBLIC_USE_MOCK_API');
 

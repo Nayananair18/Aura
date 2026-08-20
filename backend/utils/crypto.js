@@ -86,6 +86,8 @@ const validateSensorData = (sensorData) => {
     timestamp: false,
   };
 
+  if (!sensorData) return validation;
+
   const minSamples = 5;
 
   // 1. Light Sensor
@@ -188,10 +190,10 @@ const calculateLightStats = (readings) => {
  * Calculate sensor stats with variance and spread
  */
 const calculateDetailedStats = (readings) => {
-  if (!Array.isArray(readings) || readings.length === 0) return null;
+  if (!Array.isArray(readings) || readings.length === 0) return { avg: 0, min: 0, max: 0, spread: 0, count: 0 };
   
   const magnitudes = readings.map(r => 
-    r.magneticField || Math.sqrt((r.x||0)**2 + (r.y||0)**2 + (r.z||0)**2)
+    r.magneticField != null ? r.magneticField : Math.sqrt((r.x||0)**2 + (r.y||0)**2 + (r.z||0)**2)
   );
   
   const avg = magnitudes.reduce((a, b) => a + b, 0) / magnitudes.length;
@@ -217,74 +219,108 @@ const analyzeSensorIntegrity = (sensorData) => {
     screenDefense: {
       magnetometerPassed: true,
       lightFlickerPassed: true,
-      result: 'passed'
+      result: 'passed',
+      details: 'No display signatures found (Ambient lighting & magnetic baseline verified)',
     },
     physicsDefense: {
       motionPassed: true,
       gravityConsistent: true,
+      details: 'Handheld micro-tremors verified',
     },
     locationValid: false,
     timestampValid: false,
     overallScore: 0,
-    auraFlag: 'GREEN' // GREEN, YELLOW, RED
+    auraFlag: 'GREEN', // GREEN, YELLOW, RED
   };
   
   console.log('\n--- [A.U.R.A. FORENSIC ANALYSIS START] ---');
 
   const samples = 5;
 
+  if (!sensorData) {
+    analysis.screenDefense.magnetometerPassed = false;
+    analysis.screenDefense.lightFlickerPassed = false;
+    analysis.screenDefense.result = 'failed';
+    analysis.screenDefense.details = 'No sensor telemetry provided';
+    analysis.physicsDefense.motionPassed = false;
+    analysis.physicsDefense.details = 'Handheld micro-tremors missing or inconsistent';
+    analysis.auraFlag = 'RED';
+    analysis.overallScore = 0;
+    return analysis;
+  }
+
   // 1. Screen Defense - Magnetometer (Detects display EM signatures)
+  let magnetometerSuspicious = false;
+  let magDetails = '';
   if (sensorData.magnetometer && sensorData.magnetometer.length >= samples) {
     const stats = calculateDetailedStats(sensorData.magnetometer);
-    
-    // SMART THRESHOLDS: Adjust sensitivity based on environment
-    // 1. Motion Compensation: If the user is moving fast, magnetic jitter is natural.
     const isMovingFast = sensorData.accelerometer && calculateDetailedStats(sensorData.accelerometer).spread > 0.8;
-    const magneticSpreadLimit = isMovingFast ? 100.0 : 50.0; // Very forgiving
+    const magneticSpreadLimit = isMovingFast ? 100.0 : 60.0;
 
-    const isOutofBounds = stats.avg < 1 || stats.avg > 600; // Allow extreme environments
+    const isOutofBounds = stats.avg < 1 || stats.avg > 600;
     const isNoisyField = stats.spread > magneticSpreadLimit; 
     
     if (isOutofBounds || isNoisyField) {
-      analysis.screenDefense.magnetometerPassed = false;
-      analysis.screenDefense.details = isOutofBounds 
+      magnetometerSuspicious = true;
+      magDetails = isOutofBounds 
         ? `Magnetic Anomaly (${stats.avg.toFixed(1)}µT)` 
         : `Magnetic Interference (${stats.spread.toFixed(1)}µT jitter)`;
-      console.log(`[!] MAGNETOMETER FAILURE: Avg ${stats.avg.toFixed(2)}µT, Spread ${stats.spread.toFixed(2)}µT. (Threshold: ${magneticSpreadLimit})`);
+      console.log(`[!] MAGNETOMETER WARNING: Avg ${stats.avg.toFixed(2)}µT, Spread ${stats.spread.toFixed(2)}µT.`);
     } else {
       console.log(`[✓] MAGNETOMETER PASS: Avg ${stats.avg.toFixed(2)}µT, Spread ${stats.spread.toFixed(2)}µT.`);
     }
   }
 
-    // 2. Screen Defense - Light Flicker (Detects invisible 240Hz/PWM flicker)
+  // 2. Screen Defense - Light Flicker (Detects display PWM flicker)
+  let lightFlickerSuspicious = false;
   if (sensorData.light && sensorData.light.length >= samples) {
     const stats = calculateLightStats(sensorData.light);
-    
-    // Check if the device is being held relatively still
     let motionSpread = 1.0;
     if (sensorData.accelerometer && sensorData.accelerometer.length >= samples) {
       motionSpread = calculateDetailedStats(sensorData.accelerometer).spread;
     }
     const isStill = motionSpread < 1.0;
     
-    // SMART FLICKER LIMIT: 
-    // If the phone is completely still, natural light does not fluctuate. 
-    // A relative variance > 0.20 while still is a massive red flag for a computer monitor (PWM).
-    // If the phone is moving, natural lighting shifts rapidly, so we raise the limit.
-    const flickerLimit = isStill ? 0.20 : 1.5;
-    
+    // Ambient reflections off white paper or daylight can produce modest relative variance (0.2 - 0.7).
+    // Extreme display PWM flicker on static hold produces relative variance > 1.2 or severe fluctuation.
     const isTooDarkForFlicker = stats.avg < 10;
-    const isFlickering = !isTooDarkForFlicker && stats.relativeVariance > flickerLimit; 
-    const isNaturalSunlight = stats.avg > 8000; // Monitors rarely exceed 500 lux. >8k is clearly natural.
+    const isNaturalSunlight = stats.avg > 8000;
+    const isHighVariance = stats.relativeVariance > (isStill ? 1.0 : 2.5);
 
-    if (isFlickering && !isNaturalSunlight) {
-      analysis.screenDefense.lightFlickerPassed = false;
-      analysis.screenDefense.details = 'High-frequency flicker found (Screen PWM detected)';
-      console.log(`[!] LIGHT FAILURE: RelVar ${stats.relativeVariance.toFixed(2)} > limit ${flickerLimit}, Avg ${stats.avg.toFixed(1)} lux.`);
+    if (isHighVariance && !isTooDarkForFlicker && !isNaturalSunlight) {
+      lightFlickerSuspicious = true;
+      console.log(`[!] LIGHT FLICKER DETECTED: RelVar ${stats.relativeVariance.toFixed(2)}, Avg ${stats.avg.toFixed(1)} lux.`);
     } else {
-      const reason = isNaturalSunlight ? '(Natural Sunlight)' : isTooDarkForFlicker ? '(Low-light)' : `(Stable light)`;
+      const reason = isNaturalSunlight ? '(Natural Sunlight)' : isTooDarkForFlicker ? '(Low-light)' : '(Stable ambient light)';
       console.log(`[✓] LIGHT PASS: Signal stability verified. ${reason}`);
     }
+  }
+
+  // CO-CONFIRMATION HEURISTIC:
+  // Require BOTH magnetic anomaly AND light flicker for display replay detection.
+  // Ambient lux noise on paper reflection alone does NOT trigger screen replay attack failure.
+  if (magnetometerSuspicious && lightFlickerSuspicious) {
+    analysis.screenDefense.magnetometerPassed = false;
+    analysis.screenDefense.lightFlickerPassed = false;
+    analysis.screenDefense.result = 'failed';
+    analysis.screenDefense.details = 'Screen replay attack detected (Co-occurring magnetic EMI & high-frequency PWM)';
+  } else if (magnetometerSuspicious) {
+    const stats = calculateDetailedStats(sensorData.magnetometer || []);
+    if (stats.avg > 800 || stats.spread > 120) {
+      analysis.screenDefense.magnetometerPassed = false;
+      analysis.screenDefense.result = 'failed';
+      analysis.screenDefense.details = `Severe electromagnetic interference (${stats.avg.toFixed(1)}µT)`;
+    } else {
+      analysis.screenDefense.magnetometerPassed = true;
+      analysis.screenDefense.lightFlickerPassed = true;
+      analysis.screenDefense.result = 'passed';
+      analysis.screenDefense.details = 'No display signatures found (Magnetic baseline verified)';
+    }
+  } else {
+    analysis.screenDefense.magnetometerPassed = true;
+    analysis.screenDefense.lightFlickerPassed = true;
+    analysis.screenDefense.result = 'passed';
+    analysis.screenDefense.details = 'No display signatures found (Ambient lighting & magnetic baseline verified)';
   }
 
   // 3. Physics Defense - Motion
@@ -292,58 +328,65 @@ const analyzeSensorIntegrity = (sensorData) => {
     const accStats = calculateDetailedStats(sensorData.accelerometer);
     const gyroStats = calculateDetailedStats(sensorData.gyroscope || []);
     
-    // Check for "Planar" movement. Real 3D reality has rotation + translation.
-    // Replay attacks often have translation but suspiciously low rotation (Planar).
     const rotationToMotionRatio = gyroStats ? gyroStats.spread / (accStats.spread || 1) : 1;
     const isPlanarMovement = rotationToMotionRatio < 0.01; 
 
-    if (accStats.spread === 0 && gyroStats.spread === 0) { 
-      // ONLY fail if perfectly 0 (Emulator injection)
+    if (accStats.spread === 0 && (!gyroStats || gyroStats.spread === 0)) { 
       analysis.physicsDefense.motionPassed = false;
       analysis.physicsDefense.details = 'Absolute zero motion (Emulator injection detected)';
-      console.log(`[!] PHYSICS FAILURE: Perfect 0 spread.`);
+      console.log('[!] PHYSICS FAILURE: Perfect 0 spread.');
     } else if (isPlanarMovement && accStats.spread > 0.5) {
       analysis.physicsDefense.motionPassed = false;
       analysis.physicsDefense.details = 'Planar movement detected (Possible screen re-capture)';
       console.log(`[!] PHYSICS FAILURE: Gyro-Ratio ${rotationToMotionRatio.toFixed(4)} is too low. (2D Plane Signature)`);
+    } else if (accStats.spread < 0.005) {
+      analysis.physicsDefense.motionPassed = false;
+      analysis.physicsDefense.details = 'Handheld micro-tremors missing or inconsistent';
+      console.log('[!] PHYSICS FAILURE: Spread too low for natural human holding.');
     } else {
-      console.log(`[✓] PHYSICS PASS: 3D rotational physics verified.`);
+      analysis.physicsDefense.motionPassed = true;
+      analysis.physicsDefense.details = 'Handheld micro-tremors verified';
+      console.log('[✓] PHYSICS PASS: 3D rotational physics verified.');
     }
+  } else {
+    analysis.physicsDefense.motionPassed = false;
+    analysis.physicsDefense.details = 'Handheld micro-tremors missing or inconsistent';
   }
 
   if (!analysis.screenDefense.magnetometerPassed || !analysis.screenDefense.lightFlickerPassed) {
     analysis.screenDefense.result = 'failed';
-    analysis.auraFlag = 'RED';
   }
 
   // 4. Trace Defense - Location & Time
   if (sensorData.location?.latitude != null) analysis.locationValid = true;
   if (sensorData.timestamp?.start && sensorData.timestamp?.end) {
     const duration = sensorData.timestamp.end - sensorData.timestamp.start;
-    analysis.timestampValid = duration >= 0 && duration < 300000; // up to 5 minutes to frame the shot
+    analysis.timestampValid = duration >= 0 && duration < 300000;
   }
 
   // Calculate A.U.R.A Integrity Score
-  let score = 30; // Reduced base baseline
+  let score = 20;
   if (analysis.screenDefense.magnetometerPassed) score += 30;
   if (analysis.screenDefense.lightFlickerPassed) score += 20;
-  if (analysis.physicsDefense.motionPassed) score += 10;
+  if (analysis.physicsDefense.motionPassed) score += 20;
   if (analysis.locationValid) score += 5;
   if (analysis.timestampValid) score += 5;
 
   analysis.overallScore = Math.min(score, 100);
   
-  // FAIL FAST: If any major defense is breached, force RED and tank the score
+  // FAIL FAST & STRICT EVALUATION:
   if (!analysis.screenDefense.magnetometerPassed || !analysis.screenDefense.lightFlickerPassed) {
     analysis.auraFlag = 'RED';
-    analysis.overallScore = Math.min(analysis.overallScore, 45); // Hard cap for failures
+    analysis.overallScore = Math.min(analysis.overallScore, 40);
   } else if (!analysis.physicsDefense.motionPassed) {
-    analysis.auraFlag = 'YELLOW';
-    analysis.overallScore = Math.min(analysis.overallScore, 65);
+    const isMajor = analysis.physicsDefense.details.includes('Emulator') || analysis.physicsDefense.details.includes('Planar');
+    analysis.auraFlag = isMajor ? 'RED' : 'YELLOW';
+    analysis.overallScore = Math.min(analysis.overallScore, 55);
   } else if (!analysis.locationValid || !analysis.timestampValid) {
-    // If the spatiotemporal seal fails, downgrade to YELLOW
     analysis.auraFlag = 'YELLOW';
-    analysis.overallScore = Math.min(analysis.overallScore, 85);
+    analysis.overallScore = Math.min(analysis.overallScore, 80);
+  } else {
+    analysis.auraFlag = 'GREEN';
   }
 
   console.log(`[=] FINAL A.U.R.A. SCORE: ${analysis.overallScore}/100`);

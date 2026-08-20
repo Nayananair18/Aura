@@ -316,25 +316,32 @@ const exifr = require('exifr');
 const normalizeProvidedExif = (exif) => {
   if (!exif || typeof exif !== 'object') return {};
   
-  // Flatten iOS nested objects if present
-  const flat = { ...exif, ...(exif['{Exif}'] || {}), ...(exif['{TIFF}'] || {}) };
+  // Flatten iOS, Android Expo Camera, Exifr, and raw dictionaries
+  const flat = { 
+    ...exif, 
+    ...(exif['{Exif}'] || {}), 
+    ...(exif['{TIFF}'] || {}),
+    ...(exif['{GPS}'] || {}),
+    ...(exif.exif || {}),
+    ...(exif.raw || {})
+  };
   const out = {};
   
   // Map common uppercase/Expo tags to our internal lowercase names
-  out.make = flat.Make || flat.make;
-  out.model = flat.Model || flat.model;
+  out.make = flat.Make || flat.make || flat.cameraMake;
+  out.model = flat.Model || flat.model || flat.cameraModel;
   out.software = flat.Software || flat.software;
   out.exifVersion = flat.ExifVersion || flat.exifVersion;
-  out.exposureTime = flat.ExposureTime || flat.exposureTime;
+  out.exposureTime = flat.ExposureTime != null ? flat.ExposureTime : (flat.exposureTime != null ? flat.exposureTime : (flat.ShutterSpeedValue != null ? flat.ShutterSpeedValue : flat.shutterSpeed));
   
   // Some cameras use FNumber, others use ApertureValue
-  out.aperture = flat.FNumber || flat.ApertureValue || flat.aperture;
-  out.shutterSpeed = flat.ExposureTime || flat.ShutterSpeedValue || flat.shutterSpeed;
-  out.isoSpeedRating = flat.ISOSpeedRatings || flat.isoSpeedRating || flat.iso;
-  out.focalLength = flat.FocalLength || flat.focalLength;
+  out.aperture = flat.FNumber != null ? flat.FNumber : (flat.fNumber != null ? flat.fNumber : (flat.ApertureValue != null ? flat.ApertureValue : flat.aperture));
+  out.shutterSpeed = out.exposureTime;
+  out.isoSpeedRating = flat.ISOSpeedRatings != null ? flat.ISOSpeedRatings : (flat.isoSpeedRatings != null ? flat.isoSpeedRatings : (flat.PhotographicSensitivity != null ? flat.PhotographicSensitivity : (flat.ISO != null ? flat.ISO : (flat.iso != null ? flat.iso : flat.isoSpeedRating))));
+  out.focalLength = flat.FocalLength != null ? flat.FocalLength : flat.focalLength;
   out.flash = flat.Flash !== undefined ? flat.Flash : flat.flash;
-  out.latitude = flat.GPSLatitude || flat.latitude || flat.latitude;
-  out.longitude = flat.GPSLongitude || flat.longitude || flat.longitude;
+  out.latitude = flat.GPSLatitude != null ? flat.GPSLatitude : (flat.latitude != null ? flat.latitude : flat.lat);
+  out.longitude = flat.GPSLongitude != null ? flat.GPSLongitude : (flat.longitude != null ? flat.longitude : (flat.lon != null ? flat.lon : flat.lng));
   
   // Remove undefined properties
   Object.keys(out).forEach(key => out[key] === undefined && delete out[key]);
@@ -416,32 +423,73 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
     elaResult = { error: err.message, aiProbability: 0.5 };
   }
 
-  // ── 5. Ensemble fusion (weighted average) ──
-  //   KNN weight: 0.35 — reliable when EXIF tags present
-  //   Visual weight: 0.40 — reliable for pixel-level GAN artifacts
-  //   ELA weight: 0.25 — reliable for spotting inconsistent compression/variance
-  const W_KNN    = 0.30;
-  const W_VISUAL = 0.35;
-  const W_ELA    = 0.35;
-  
+  // ── Physical EXIF Presence Score (0 - 100%) ──
+  const coreExifChecks = [
+    Boolean(metadataFingerprint.make && String(metadataFingerprint.make).trim() !== ''),
+    Boolean(metadataFingerprint.model && String(metadataFingerprint.model).trim() !== ''),
+    metadataFingerprint.shutterSpeed != null,
+    metadataFingerprint.aperture != null,
+    metadataFingerprint.isoSpeedRating != null,
+    metadataFingerprint.focalLength != null,
+    Boolean(metadataFingerprint.software || metadataFingerprint.exifVersion),
+  ];
+  const passedCoreExif = coreExifChecks.filter(Boolean).length;
+  const exifScore = (passedCoreExif / coreExifChecks.length) * 100;
+
+  // Check for explicit AI software tags or prompt metadata (e.g. Midjourney, DALL-E, ComfyUI, etc.)
+  const hasExplicitAiSoftware = SIGNALS.find(s => s.id === 'known_ai_software')?.check(metadataFingerprint) || false;
+  const hasExplicitAiPrompt = SIGNALS.find(s => s.id === 'xmp_prompt_field')?.check(metadataFingerprint) || false;
+  const isExplicitAi = hasExplicitAiSoftware || hasExplicitAiPrompt;
+
+  // ── 5. Ensemble fusion (weighted average & physical hardware gate) ──
+  let W_KNN    = 0.40;
+  let W_VISUAL = 0.30;
+  let W_ELA    = 0.30;
+
+  let effectiveVisualAiProb = visualAiProb;
+  let effectiveElaAiProb = elaAiProb;
+
+  // HARD OVERRIDE / PHYSICAL GATE:
+  // If physical EXIF presence score >= 70% (has Make, Model, Exposure, F-Number, ISO, etc.)
+  // and no explicit AI software tag is present:
+  // Document photos, high-contrast text, or clean macros have sharp edges that confuse visual CNNs.
+  // Physical optical hardware proof (Make/Model/ISO/Shutter/Lens) is ground truth physics!
+  if (exifScore >= 70 && !isExplicitAi) {
+    // Cap visual & ELA false-positive penalties
+    effectiveVisualAiProb = Math.min(visualAiProb, 15.0);
+    effectiveElaAiProb = Math.min(elaAiProb, 15.0);
+    W_KNN = 0.70;
+    W_VISUAL = 0.15;
+    W_ELA = 0.15;
+  }
+
   const ensembleAiProb = parseFloat(
-    (W_KNN * knnAiProb + W_VISUAL * visualAiProb + W_ELA * elaAiProb).toFixed(1)
+    (W_KNN * knnAiProb + W_VISUAL * effectiveVisualAiProb + W_ELA * effectiveElaAiProb).toFixed(1)
   );
   const aiProbability   = ensembleAiProb;
   const realProbability = parseFloat((100 - aiProbability).toFixed(1));
 
-  // ── 6. Classification band ──
+  // ── 6. Classification band (Strict Rule: "No Physical Proof = Not Verified") ──
+  const hasHardwareExif = Boolean(
+    (metadataFingerprint.make && String(metadataFingerprint.make).trim() !== '') ||
+    (metadataFingerprint.model && String(metadataFingerprint.model).trim() !== '') ||
+    metadataFingerprint.shutterSpeed != null ||
+    metadataFingerprint.aperture != null ||
+    metadataFingerprint.focalLength != null
+  );
+
   let classification;
   let confidence;
-  if (aiProbability >= 70) {         // Raised from 65 → 70 to reduce false AI positives
+  if (aiProbability >= 70) {
     classification = 'AI_GENERATED';
-    confidence     = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
-  } else if (aiProbability <= 35) {  // Lowered from 38 → 35 to match tighter real-camera band
+    confidence = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
+  } else if (aiProbability < 25 && hasHardwareExif) {
+    // REAL_CAMERA if hardware EXIF is verified and AI prob < 25%
     classification = 'REAL_CAMERA';
-    confidence     = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
+    confidence = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
   } else {
     classification = 'UNCERTAIN';
-    confidence     = parseFloat((40 + Math.abs(aiProbability - 51.5)).toFixed(1));
+    confidence = parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
   }
 
   // ── 7. Signal report + visual signals ──

@@ -43,11 +43,11 @@ const verifyMedia = async (req, res) => {
       });
     }
 
-    const safeUploadedHash = uploadedMediaHash || fileHash || null;
+        const safeUploadedHash = uploadedMediaHash || fileHash || null;
     let isExactMatch = false;
     let proofFound = false;
     let existingProof = null;
-    let storedHash = fileHash || null;
+    let storedHash = null;
     let matchedProofId = proofId || null;
 
     if (isDbConnected()) {
@@ -72,43 +72,45 @@ const verifyMedia = async (req, res) => {
         if (safeUploadedHash) {
           isExactMatch = (storedHash === safeUploadedHash);
         } else {
-          // If only proofId was queried without sending image hash, treat as proof found
           isExactMatch = true;
         }
       }
     }
 
-    // Deterministic confidence: 99.7 for exact match, low for mismatch
-    const matchPercentage = isExactMatch
-      ? 100
-      : (proofFound ? 15.0 : hammingConfidence(storedHash, safeUploadedHash));
+    // Deterministic match percentage:
+    // If exact match on registered proof: 100%
+    // If proof found but hash mismatch (tampered): 15%
+    // If not found in database ledger: 0% (Unregistered)
+    const matchPercentage = proofFound 
+      ? (isExactMatch ? 100 : 15.0) 
+      : 0;
 
-    const confidence = isExactMatch ? 99.7 : matchPercentage;
+    const confidence = isExactMatch ? 99.7 : (proofFound ? 15.0 : 0);
 
-    // Determine status & flag according to requirement #4:
-    // 1. Authentic: Proof Found + Media Integrity MATCH
-    // 2. Tampered (Modified): Proof Found + Media Integrity MISMATCH (QR copied or image edited)
-    // 3. Unverified: No valid proof record found
     let status;
     let auraFlag;
     let statusDetails;
     let message;
 
-    if (isExactMatch) {
+    const isProofAuthentic = existingProof ? (existingProof.status === 'authentic' && (existingProof.integrityScore ?? 100) >= 70) : false;
+
+    if (isExactMatch && isProofAuthentic) {
       status = 'authentic';
       auraFlag = 'GREEN';
       message = '✓ AUTHENTIC CAPTURE';
-      statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID | Capture Evidence: VALID';
+      statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID';
     } else if (proofFound) {
       status = 'tampered';
       auraFlag = 'RED';
-      message = '⚠ MEDIA MODIFIED';
-      statusDetails = 'Proof Found | Original Proof: VALID | Media Integrity: MISMATCH | Current Media: MODIFIED';
+      message = '✗ MEDIA MODIFIED';
+      statusDetails = isExactMatch 
+        ? 'Proof Found | Media recorded as Tampered/Suspicious' 
+        : 'Proof Found | Media Integrity: MISMATCH';
     } else {
       status = 'unverified';
       auraFlag = 'YELLOW';
       message = '? UNVERIFIED MEDIA';
-      statusDetails = 'No valid AURA proof found';
+      statusDetails = 'No registered AURA proof found in ledger (Unverified External Hash)';
     }
 
     const verificationId = `VERIF_${uuidv4()}`;
@@ -124,35 +126,36 @@ const verifyMedia = async (req, res) => {
       hashValidation: {
         isValid: isExactMatch,
         matchPercentage,
+        status: proofFound ? (isExactMatch ? 'Verified Match' : 'Hash Mismatch') : '0% Match / Unregistered',
         uploadedHash: safeUploadedHash ? safeUploadedHash.substring(0, 16) + '...' : 'none',
-        storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none',
+        storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none (Unregistered)',
       },
       sensorValidation: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
       metadataConsistency: isExactMatch ? 'consistent' : 'unknown',
       timestamp: new Date().toISOString(),
       screenDefense: {
-        result: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
-        magnetometerPassed: isExactMatch,
-        lightFlickerPassed: isExactMatch,
-        details: isExactMatch ? 'No display signatures found' : (proofFound ? 'Digital canvas mismatch' : 'Not evaluated'),
+        result: (isExactMatch && isProofAuthentic) ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+        magnetometerPassed: (isExactMatch && isProofAuthentic),
+        lightFlickerPassed: (isExactMatch && isProofAuthentic),
+        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'Unverified external media (No telemetry sealed)',
       },
       physicsDefense: {
-        motionPassed: isExactMatch,
-        gravityConsistent: isExactMatch ? true : null,
-        details: isExactMatch ? 'Handheld signatures verified' : (proofFound ? 'Modified media content' : 'Not evaluated'),
-      },
-      fileInfo: {
-        fileName: metadata?.fileName || 'unknown',
-        fileType: metadata?.fileType || 'unknown',
-        fileSize: metadata?.fileSize || null,
-        uploadedAt: metadata?.uploadedAt || new Date().toISOString(),
+        motionPassed: (isExactMatch && isProofAuthentic),
+        gravityConsistent: (isExactMatch && isProofAuthentic),
+        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'No handheld micro-tremor telemetry found in ledger',
       },
       proofDetails: existingProof ? {
         proofId: existingProof.proofId,
-        capturedAt: existingProof.createdAt,
-        integrityScore: existingProof.integrityScore,
-        confidence: existingProof.confidence,
-        deviceId: existingProof.metadata?.deviceId || 'Verified Device',
+        capturedAt: existingProof.timestamp,
+        integrityScore: existingProof.integrityScore || 95,
+        confidence: existingProof.overallConfidence || 99.7,
+        deviceId: existingProof.deviceId || 'Verified Device',
+        exif: existingProof.metadata?.exif || null,
+        sensorStats: existingProof.sensorData ? {
+          magnetometer: existingProof.sensorData.magnetometer ? calculateDetailedStats(existingProof.sensorData.magnetometer) : null,
+          light: existingProof.sensorData.light ? calculateLightStats(existingProof.sensorData.light) : null,
+          accelerometer: existingProof.sensorData.accelerometer ? calculateDetailedStats(existingProof.sensorData.accelerometer) : null,
+        } : null,
       } : null,
     };
 
@@ -189,27 +192,62 @@ const storeVerificationResult = async (req, res) => {
 
     const verificationId = `RESULT_${uuidv4()}`;
 
+    // Extract actual verification payload (handles both nested .verification and direct object)
+    const actualVerif = verificationResult.verification || verificationResult;
+
+    // Normalize status to valid schema enum ('authentic', 'tampered', 'inconclusive', 'unverified')
+    let rawStatus = actualVerif.status || actualVerif.auraFlag || 'unverified';
+    rawStatus = String(rawStatus).toLowerCase();
+    let status = 'unverified';
+    if (rawStatus.includes('auth') || rawStatus.includes('green') || rawStatus.includes('pass')) {
+      status = 'authentic';
+    } else if (rawStatus.includes('tamp') || rawStatus.includes('fail') || rawStatus.includes('red')) {
+      status = 'tampered';
+    } else if (rawStatus.includes('inconc') || rawStatus.includes('amber') || rawStatus.includes('yellow')) {
+      status = 'inconclusive';
+    } else {
+      status = 'unverified';
+    }
+
+    // Normalize confidence (0 - 100 number)
+    let rawConfidence = actualVerif.confidence ?? actualVerif.overallConfidence ?? actualVerif.overallScore ?? (status === 'authentic' ? 99.7 : 0);
+    let confidence = Number(rawConfidence);
+    if (!Number.isFinite(confidence) || isNaN(confidence)) {
+      confidence = (status === 'authentic' ? 99.7 : 0);
+    }
+    confidence = Math.max(0, Math.min(100, parseFloat(confidence.toFixed(1))));
+
+    // Resolve proofId
+    const resolvedProofId = actualVerif.proofId || actualVerif.id || actualVerif.verificationId || `PROOF_${mediaHash.slice(0, 12)}`;
+
     let persistedToDb = false;
     if (isDbConnected()) {
       try {
         const result = new VerificationResult({
           verificationId,
-          // proofId: use the verificationResult's own verificationId as the source reference
-          proofId: verificationResult.verificationId || verificationId,
+          proofId: resolvedProofId,
           fileHash: mediaHash,
-          hashValidation: verificationResult.hashValidation,
-          status: verificationResult.status,
-          confidence: verificationResult.confidence,
-          metadata: {
-            fileName: metadata?.fileName,
-            fileSize: metadata?.fileSize,
-            fileMimeType: metadata?.fileMimeType,
-            verifiedAt: new Date().toISOString(),
+          hashValidation: actualVerif.hashValidation || {
+            isValid: status === 'authentic',
+            matchPercentage: confidence,
+            uploadedHash: mediaHash,
+            storedHash: actualVerif.hashValidation?.storedHash || null,
           },
+          status,
+          confidence,
+          metadata: {
+            fileName: metadata?.fileName || actualVerif.fileName,
+            fileSize: metadata?.fileSize || metadata?.size,
+            fileMimeType: metadata?.fileMimeType || metadata?.type,
+            verifiedAt: new Date().toISOString(),
+            verifiedFrom: metadata?.verifiedFrom || 'AURA Mobile App',
+          },
+          flagged: status === 'tampered',
+          flagReason: status === 'tampered' ? (actualVerif.statusDetails || 'Integrity anomaly detected') : null,
         });
         await result.save();
         persistedToDb = true;
-        logger.info(`Stored verification result: ${verificationId}`);
+        logger.info(`Stored verification result: ${verificationId} (status: ${status}, confidence: ${confidence}%)`);
       } catch (dbError) {
         logger.warn(`Could not persist verification result to DB: ${dbError.message}`);
       }
@@ -221,6 +259,8 @@ const storeVerificationResult = async (req, res) => {
       success: true,
       resultId: verificationId,
       persistedToDb,
+      status,
+      confidence,
       message: 'Verification result stored successfully',
       storedAt: new Date().toISOString(),
     });

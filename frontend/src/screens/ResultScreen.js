@@ -9,7 +9,7 @@ import { QrCode } from '../components/QrCode';
 import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
 
-// ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
+// ── Sub-components & Helpers ──
 
 const getStyles = (theme) => {
   const { colors, spacing, typography } = theme;
@@ -52,6 +52,7 @@ const getStyles = (theme) => {
       ...typography.callout,
       color: colors.textSecondary,
       marginBottom: spacing.md,
+      textAlign: 'center',
     },
     auraFlag: {
       paddingHorizontal: spacing.md,
@@ -113,12 +114,28 @@ const getStyles = (theme) => {
       color: colors.textMuted,
     },
 
-    // Hash
+    // Sections & Hash
+    sectionBlock: {
+      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    hashSection: {
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    hashCard: {
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+      borderRadius: 12,
+    },
     hashText: {
       ...typography.footnote,
       color: colors.textSecondary,
       fontFamily: 'monospace',
-      lineHeight: 20,
+      fontSize: 12,
+      lineHeight: 19,
+      letterSpacing: 0.5,
+      flexWrap: 'wrap',
     },
 
     // Defense & Validation
@@ -128,13 +145,15 @@ const getStyles = (theme) => {
     defenseHeader: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       gap: spacing.sm,
-      marginBottom: 4,
+      marginBottom: 6,
     },
     defenseDetails: {
       ...typography.caption,
       color: colors.textMuted,
-      paddingLeft: 18,
+      paddingLeft: 16,
+      lineHeight: 16,
     },
     validationRow: {
       flexDirection: 'row',
@@ -146,15 +165,18 @@ const getStyles = (theme) => {
       width: 8,
       height: 8,
       borderRadius: 4,
+      flexShrink: 0,
     },
     validationLabel: {
       ...typography.callout,
       color: colors.text,
       flex: 1,
+      fontWeight: '600',
     },
     validationStatus: {
       ...typography.footnote,
-      fontWeight: '600',
+      fontWeight: '700',
+      flexShrink: 0,
     },
     divider: {
       height: 1,
@@ -165,6 +187,7 @@ const getStyles = (theme) => {
     qrCard: {
       alignItems: 'center',
       paddingVertical: spacing.lg,
+      marginBottom: spacing.md,
     },
     qrDesc: {
       ...typography.caption,
@@ -173,15 +196,6 @@ const getStyles = (theme) => {
       textAlign: 'center',
     },
   });
-};
-
-const getFlagColor = (flag, colors) => {
-  switch (flag) {
-    case 'RED': return colors.error;
-    case 'YELLOW': return '#F59E0B'; // Amber
-    case 'GREEN':
-    default: return colors.authentic;
-  }
 };
 
 const DefenseRow = ({ label, status, details, theme }) => {
@@ -201,16 +215,50 @@ const DefenseRow = ({ label, status, details, theme }) => {
   );
 };
 
-const ValidationRow = ({ label, passed, theme }) => {
-  const { colors, spacing, typography } = theme;
-  const styles = getStyles(theme);
+const renderSensorAnalysis = (sensorData, theme) => {
+  if (!sensorData) return null;
+
+  const accelPoints = Array.isArray(sensorData.accelerometer)
+    ? sensorData.accelerometer.map(r => (r && typeof r === 'object' && r.x != null ? Math.sqrt((r.x||0)**2 + (r.y||0)**2 + (r.z||0)**2) : Number(r) || 0)).filter(Number.isFinite)
+    : [];
+
+  const lightPoints = Array.isArray(sensorData.light)
+    ? sensorData.light.map(r => (r && typeof r === 'object' && r.lux != null ? Number(r.lux) || 0 : Number(r) || 0)).filter(Number.isFinite)
+    : [];
+
+  if (accelPoints.length < 2 && lightPoints.length < 2) return null;
+
+  const { colors, spacing } = theme;
+
   return (
-    <View style={styles.validationRow}>
-      <View style={[styles.validationDot, { backgroundColor: passed ? colors.authentic : colors.error }]} />
-      <Text style={styles.validationLabel}>{label}</Text>
-      <Text style={[styles.validationStatus, { color: passed ? colors.authentic : colors.error }]}>
-        {passed ? 'Passed' : 'Failed'}
-      </Text>
+    <View style={{ marginTop: spacing.md }}>
+      {accelPoints.length >= 2 && (
+        <>
+          <SectionTitle title="MOTION PROFILE" theme={theme} />
+          <Card theme={theme}>
+            <SensorGraph
+              data={accelPoints}
+              color={colors.accent || '#818CF8'}
+              height={48}
+              maxPoints={60}
+            />
+          </Card>
+        </>
+      )}
+
+      {lightPoints.length >= 2 && (
+        <>
+          <SectionTitle title="OPTICAL DEFENSE METRICS" theme={theme} />
+          <Card theme={theme}>
+            <SensorGraph
+              data={lightPoints}
+              color="#F59E0B"
+              height={48}
+              maxPoints={60}
+            />
+          </Card>
+        </>
+      )}
     </View>
   );
 };
@@ -222,23 +270,77 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     verification = {},
     proof = {},
     sensorData = null,
-    fileName = 'media',
+    fileName = null,
     fileHash = '',
     photoData = null,
     metadata = {},
     mlAnalysis = null,
   } = params;
 
-  // Physical evidence fingerprint — comes from mlAnalysis.metadataFingerprint
-  const physicalFingerprint = mlAnalysis?.metadataFingerprint || null;
+    // Differentiate between "Capture Mode" (brand new baseline) and "Verification Mode"
+  const isCaptureMode = Boolean(params.isCaptureMode === true || verification.isCaptureMode === true);
 
-  const isAuthentic = status === 'authentic';
+  // Resolve display filename
+  const displayFileName = fileName || photoData?.name || metadata?.fileName || 'photo_capture.jpg';
+
+  // Physical evidence fingerprint — from mlAnalysis.metadataFingerprint, proof.exif, or metadata
+  const physicalFingerprint = mlAnalysis?.metadataFingerprint || proof?.exif || metadata?.exif || null;
+
+  const hasHardwareExif = Boolean(
+    physicalFingerprint && (
+      (physicalFingerprint.make && String(physicalFingerprint.make).trim() !== '') ||
+      (physicalFingerprint.model && String(physicalFingerprint.model).trim() !== '') ||
+      physicalFingerprint.shutterSpeed != null ||
+      physicalFingerprint.aperture != null ||
+      physicalFingerprint.focalLength != null
+    )
+  );
+
+  const hashValidation = verification.hashValidation || {};
+  const isHashMatch = Boolean(hashValidation.isValid && (hashValidation.matchPercentage ?? 0) > 0);
+  const hashValid = isCaptureMode ? true : isHashMatch;
+  const aiProbability = mlAnalysis?.aiProbability ?? 0;
+  const screenPassed = verification.screenDefense?.result === 'passed' || 
+    (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
+  const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
+
+  // Strict Decision Engine Rule: "No Physical Proof = Not Verified"
+  let evaluatedFlag = verification.auraFlag || 'GREEN';
+
+  if (!isCaptureMode && !isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
+    evaluatedFlag = 'RED';
+  } else if (!isCaptureMode && !isHashMatch) {
+    // Unregistered external upload without authentic ledger proof
+    evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
+  } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
+    evaluatedFlag = 'RED';
+  } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
+    // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
+    evaluatedFlag = 'YELLOW';
+  } else if (verification.auraFlag === 'GREEN' && screenPassed && physicsPassed && hasHardwareExif && aiProbability < 25 && hashValid) {
+    evaluatedFlag = 'GREEN';
+  } else {
+    evaluatedFlag = 'YELLOW';
+  }
+
+  const isAuthentic = evaluatedFlag === 'GREEN';
+  const isUncertain = evaluatedFlag === 'YELLOW';
+  const isTampered = evaluatedFlag === 'RED';
+
   const { colors } = theme;
   const styles = getStyles(theme);
 
-  const hashValidation = verification.hashValidation || {};
-  const confidence = verification.confidence || 99.7;
+  const confidence = verification.confidence != null 
+    ? verification.confidence 
+    : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : 0.0));
   const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
+
+  const displayHashMatch = isCaptureMode
+    ? '100% (Baseline Sealed)'
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0% Match / Unregistered');
+  const statHashMatch = isCaptureMode
+    ? '100%'
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0%');
 
   const handleSaveToGallery = async () => {
     if (!photoData?.uri) {
@@ -269,6 +371,30 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     }
   };
 
+  // Status Badge visual configurations
+  const badgeConfig = {
+    GREEN: {
+      icon: '✓',
+      title: 'A.U.R.A. Verified',
+      subtitle: 'Environmental Physics Sealed',
+      color: colors.authentic || '#22C55E',
+    },
+    YELLOW: {
+      icon: '?',
+      title: 'Uncertain Authenticity',
+      subtitle: 'Missing physical proof or elevated synthetic signals',
+      color: '#F59E0B',
+    },
+    RED: {
+      icon: '✗',
+      title: 'Integrity Failure',
+      subtitle: 'Physics violation or high AI generation probability',
+      color: colors.error || '#EF4444',
+    },
+  };
+
+  const activeBadge = badgeConfig[evaluatedFlag] || badgeConfig.YELLOW;
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Header
@@ -280,15 +406,13 @@ export const ResultScreen = ({ route, navigation, theme }) => {
       <View style={styles.content}>
         {/* Status Badge */}
         <View style={styles.statusBadge}>
-          <View style={[styles.statusIconCircle, { backgroundColor: isAuthentic ? colors.authentic : colors.error }]}>
-            <Text style={styles.statusIcon}>{isAuthentic ? '✓' : '✗'}</Text>
+          <View style={[styles.statusIconCircle, { backgroundColor: activeBadge.color }]}>
+            <Text style={styles.statusIcon}>{activeBadge.icon}</Text>
           </View>
-          <Text style={styles.statusTitle}>{isAuthentic ? 'A.U.R.A. Verified' : 'Integrity Failure'}</Text>
-          <Text style={styles.statusSubtitle}>
-            {isAuthentic ? 'Environmental Physics Sealed' : 'Sensor anomalies detected'}
-          </Text>
-          <View style={[styles.auraFlag, { backgroundColor: getFlagColor(verification.auraFlag, colors) }]}>
-            <Text style={styles.auraFlagText}>A.U.R.A. FLAG: {verification.auraFlag || 'GREEN'}</Text>
+          <Text style={styles.statusTitle}>{activeBadge.title}</Text>
+          <Text style={styles.statusSubtitle}>{activeBadge.subtitle}</Text>
+          <View style={[styles.auraFlag, { backgroundColor: activeBadge.color }]}>
+            <Text style={styles.auraFlagText}>A.U.R.A. FLAG: {evaluatedFlag}</Text>
           </View>
         </View>
 
@@ -297,7 +421,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           <Card theme={theme} style={styles.photoCard}>
             <Image source={{ uri: photoData.uri }} style={styles.photo} resizeMode="cover" />
             <View style={styles.photoMeta}>
-              <Text style={styles.photoName} numberOfLines={1}>{photoData.name || 'Captured image'}</Text>
+              <Text style={styles.photoName} numberOfLines={1}>{displayFileName}</Text>
               <Text style={styles.photoSize}>
                 {photoData.size != null ? `${(photoData.size / 1024).toFixed(1)} KB` : ''}
               </Text>
@@ -305,10 +429,12 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           </Card>
         )}
 
-        {/* Quick Stats */}
+                {/* Quick Stats */}
         <View style={styles.statsRow}>
           <Card theme={theme} style={styles.statCard}>
-            <Text style={styles.statValue}>{hashValidation.matchPercentage ?? '—'}%</Text>
+            <Text style={[styles.statValue, { color: isCaptureMode || isHashMatch ? colors.text : colors.error }]}>
+              {statHashMatch}
+            </Text>
             <Text style={styles.statLabel}>Hash Match</Text>
           </Card>
           <Card theme={theme} style={styles.statCard}>
@@ -322,54 +448,70 @@ export const ResultScreen = ({ route, navigation, theme }) => {
         {/* Details */}
         <SectionTitle title="DETAILS" theme={theme} />
         <Card theme={theme}>
-          <MetadataItem label="File" value={fileName || 'unknown'} theme={theme} />
+          <MetadataItem label="File" value={displayFileName} theme={theme} />
           <MetadataItem label="Timestamp" value={verification.timestamp ? new Date(verification.timestamp).toLocaleString() : new Date().toLocaleString()} theme={theme} />
-          <MetadataItem label="Hash Match" value={`${hashValidation.matchPercentage || 0}%`} theme={theme} />
-          <MetadataItem label="Metadata" value={verification.metadataConsistency || 'Consistent'} theme={theme} isLast />
+          <MetadataItem 
+            label="Hash Match" 
+            value={displayHashMatch} 
+            theme={theme} 
+          />
+          <MetadataItem label="Metadata" value={verification.metadataConsistency || (isCaptureMode ? 'Consistent' : 'Unregistered')} theme={theme} isLast />
         </Card>
 
-        {/* Hash */}
-        {fileHash && (
-          <>
+        {/* SHA-256 Hash Card with explicit vertical padding and margin */}
+        {fileHash ? (
+          <View style={styles.hashSection}>
             <SectionTitle title="SHA-256 HASH" theme={theme} />
-            <Card theme={theme}>
+            <Card theme={theme} style={styles.hashCard}>
               <Text style={styles.hashText} selectable>{fileHash}</Text>
             </Card>
-          </>
-        )}
+          </View>
+        ) : null}
 
-        {/* A.U.R.A. Defense Report */}
-        <SectionTitle title="DEFENSE REPORT" theme={theme} />
-        <Card theme={theme}>
-          <DefenseRow 
-            label="Screen Attack Defense" 
-            status={verification.screenDefense?.result === 'passed'} 
-            details={verification.screenDefense?.details || "No magnetic display signature found"}
-            theme={theme} 
-          />
-          <View style={styles.divider} />
-          <DefenseRow 
-            label="Physics Consistency" 
-            status={verification.physicsDefense?.motionPassed} 
-            details={verification.physicsDefense?.details || "Handheld micro-tremors verified"}
-            theme={theme} 
-          />
-          <View style={styles.divider} />
-          <DefenseRow 
-            label="Spatiotemporal Seal" 
-            status={verification.locationValid && verification.timestampValid} 
-            details={`Capture Duration: ${((verification.duration || 1000)/1000).toFixed(1)}s`}
-            theme={theme} 
-          />
-        </Card>
+        {/* A.U.R.A. Defense Report with clean section margin */}
+        <View style={styles.sectionBlock}>
+          <SectionTitle title="DEFENSE REPORT" theme={theme} />
+          <Card theme={theme}>
+            <DefenseRow 
+              label="Screen Attack Defense" 
+              status={screenPassed} 
+              details={
+                verification.screenDefense?.details || (screenPassed ? "No display signatures found (Ambient lighting & magnetic baseline verified)" : "Screen replay signature detected")
+              }
+              theme={theme} 
+            />
+            <View style={styles.divider} />
+            <DefenseRow 
+              label="Physics Consistency" 
+              status={physicsPassed} 
+              details={
+                verification.physicsDefense?.details || (physicsPassed ? "Handheld micro-tremors verified" : "Handheld micro-tremors missing or inconsistent")
+              }
+              theme={theme} 
+            />
+            <View style={styles.divider} />
+            <DefenseRow 
+              label="Spatiotemporal Seal" 
+              status={Boolean(verification.locationValid && verification.timestampValid)} 
+              details={
+                (verification.locationValid && verification.timestampValid)
+                  ? `Capture Duration: ${((verification.duration || 1000)/1000).toFixed(1)}s (Location & Time Sealed)`
+                  : `Spatiotemporal seal unverified${!verification.locationValid ? ' (Location missing)' : ''}${!verification.timestampValid ? ' (Timing inconsistent)' : ''}`
+              }
+              theme={theme} 
+            />
+          </Card>
+        </View>
 
-        {/* ML Metadata Analysis */}
-        <SectionTitle title="ML METADATA ANALYSIS" theme={theme} />
-        <MLScoreCard
-          analysis={mlAnalysis}
-          isLoading={false}
-          theme={theme}
-        />
+        {/* ML Metadata Analysis with clear top spacing */}
+        <View style={styles.sectionBlock}>
+          <SectionTitle title="ML METADATA ANALYSIS" theme={theme} />
+          <MLScoreCard
+            analysis={mlAnalysis}
+            isLoading={false}
+            theme={theme}
+          />
+        </View>
 
         {/* Physical Evidence — EXIF Fingerprint */}
         <SectionTitle title="PHYSICAL EVIDENCE" theme={theme} />
@@ -451,86 +593,5 @@ export const ResultScreen = ({ route, navigation, theme }) => {
         />
       </View>
     </ScrollView>
-  );
-};
-
-// ── Sub-components ──
-
-const renderSensorAnalysis = (sensorData, theme) => {
-  if (!sensorData) return null;
-  const { spacing } = theme;
-
-  const getMagnitudeHistory = (data) => {
-    if (!data || data.length === 0) return null;
-    return data.map((d) => Math.sqrt((d.x || 0) ** 2 + (d.y || 0) ** 2 + (d.z || 0) ** 2));
-  };
-
-  const getLightHistory = (data) => {
-    if (!data || data.length === 0) return null;
-    return data.map((d) => d.lux || 0);
-  };
-
-  const sensors = [
-    { label: 'Accelerometer', data: getMagnitudeHistory(sensorData.accelerometer) },
-    { label: 'Gyroscope', data: getMagnitudeHistory(sensorData.gyroscope) },
-    { label: 'Magnetometer', data: getMagnitudeHistory(sensorData.magnetometer) },
-    { label: 'Light', data: getLightHistory(sensorData.light) },
-  ].filter(s => s.data && s.data.length > 0);
-
-  if (sensors.length === 0) return null;
-
-  return (
-    <>
-      <SectionTitle title="SENSOR ANALYSIS" theme={theme} />
-      <Card theme={theme}>
-        {sensors.map((sensor, index) => (
-          <AnalysisRow 
-            key={sensor.label}
-            sensor={sensor}
-            theme={theme}
-            isLast={index === sensors.length - 1}
-          />
-        ))}
-      </Card>
-    </>
-  );
-};
-
-const AnalysisRow = ({ sensor, theme, isLast }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const { colors, spacing, typography } = theme;
-
-  return (
-    <View style={{ marginBottom: isLast ? 0 : spacing.sm }}>
-      <Pressable 
-        onPress={() => setIsExpanded(!isExpanded)}
-        style={({ pressed }) => [
-          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.xs },
-          pressed && { opacity: 0.7 }
-        ]}
-      >
-        <Text style={{ ...typography.footnote, color: colors.textSecondary }}>{sensor.label}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ ...typography.caption, fontSize: 10, color: colors.textMuted, marginRight: spacing.sm }}>{sensor.data.length} pts</Text>
-          <Text style={{ 
-            fontSize: 10, 
-            color: colors.textMuted, 
-            transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] 
-          }}>▼</Text>
-        </View>
-      </Pressable>
-      
-      {isExpanded && (
-        <View style={{ marginTop: spacing.xs, paddingBottom: spacing.sm }}>
-          <SensorGraph 
-            data={sensor.data} 
-            color={colors.accent} 
-            height={48} 
-            maxPoints={100} 
-          />
-        </View>
-      )}
-      {!isLast && <View style={{ height: 1, backgroundColor: colors.divider, marginTop: spacing.xs }} />}
-    </View>
   );
 };

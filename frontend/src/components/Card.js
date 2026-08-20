@@ -43,6 +43,7 @@ const getStyles = (theme) => {
       paddingVertical: spacing.sm + 2,
       borderBottomWidth: 1,
       borderBottomColor: colors.divider,
+      minHeight: 42,
     },
     metadataItemLast: {
       borderBottomWidth: 0,
@@ -50,6 +51,8 @@ const getStyles = (theme) => {
     metadataLabel: {
       ...typography.callout,
       color: colors.textSecondary,
+      flexShrink: 0,
+      marginRight: spacing.sm,
     },
     metadataValue: {
       ...typography.callout,
@@ -57,15 +60,14 @@ const getStyles = (theme) => {
       fontWeight: '600',
       textAlign: 'right',
       flex: 1,
-      marginLeft: spacing.md,
     },
     sectionTitle: {
       ...typography.caption,
       fontSize: 12,
       fontWeight: '600',
       color: colors.textSecondary,
-      marginBottom: spacing.sm,
-      marginTop: spacing.xl,
+      marginBottom: spacing.xs + 2,
+      marginTop: spacing.lg,
       letterSpacing: 1.2,
     },
   });
