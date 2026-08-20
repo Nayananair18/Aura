@@ -102,7 +102,7 @@ const generateAuthenticityProof = async (req, res) => {
 
     // Add server-side watermark if authentic
     let watermarkedImage = mediaData;
-    if (integrityAnalysis.auraFlag === 'GREEN' && !integrityAnalysis.isRecaptured && integrityAnalysis.screenDefense?.screenDefensePassed && mediaData && mediaData.length > 100) {
+    if (integrityAnalysis.auraFlag === 'GREEN' && mediaData && mediaData.length > 100) {
       logger.info(`Authenticity verified. Applying A.U.R.A. Certified Seal (${proofId})...`);
       watermarkedImage = await watermarkImage(mediaData, proofId, metadata.timestamp || new Date().toISOString(), verificationUrl);
     }
@@ -146,50 +146,32 @@ const generateAuthenticityProof = async (req, res) => {
       }
     }
 
-    const isRecaptured = Boolean(integrityAnalysis.isRecaptured || integrityAnalysis.screenDefense?.isRecaptured || integrityAnalysis.screenDefense?.result === 'failed');
-    const screenDefensePassed = !isRecaptured && Boolean(integrityAnalysis.screenDefense?.screenDefensePassed && integrityAnalysis.screenDefense?.result === 'passed');
-
     const proof = {
       id: proofId,
       hash: proofHash,
       deviceFingerprint,
       sensorValidation,
-      sensorValidationStatus: (overallConfidence >= 70 && !isRecaptured && screenDefensePassed) ? 'passed' : 'failed',
+      sensorValidationStatus: overallConfidence >= 70 ? 'passed' : 'failed', // For legacy frontend check
       sensorStats,
       sensorConfidence,
-      integrityAnalysis: {
-        ...integrityAnalysis,
-        isRecaptured,
-        screenDefensePassed,
-        auraFlag: isRecaptured ? 'RED' : integrityAnalysis.auraFlag,
-        overallScore: isRecaptured ? Math.min(integrityAnalysis.overallScore, 30) : integrityAnalysis.overallScore,
-      },
-      isRecaptured,
-      screenDefensePassed,
+      integrityAnalysis,
       sensorsUsed: validSensors,
       totalSensors: 6,
       timestamp: new Date().toISOString(),
       deviceId: metadata.deviceId,
       capturedAt: metadata.capturedAt,
-      authenticatedImage: isRecaptured ? null : watermarkedImage,
+      authenticatedImage: watermarkedImage,
       exif: metadata?.exif || null,
     };
-
-    const finalIntegrityScore = isRecaptured ? Math.min(integrityAnalysis.overallScore, 30) : integrityAnalysis.overallScore;
-    const responseStatus = isRecaptured 
-      ? 'tampered' 
-      : (integrityAnalysis.auraFlag === 'RED' ? 'tampered' : (integrityAnalysis.auraFlag === 'YELLOW' || finalIntegrityScore < 75 ? 'suspicious' : 'authentic'));
 
     res.json({
       success: true,
       proof,
-      overallConfidence: isRecaptured ? '20.0' : overallConfidence.toFixed(1),
-      integrityScore: finalIntegrityScore,
-      status: responseStatus,
-      isRecaptured,
-      screenDefensePassed,
+      overallConfidence: overallConfidence.toFixed(1),
+      integrityScore: integrityAnalysis.overallScore,
+      status: integrityAnalysis.auraFlag === 'RED' ? 'tampered' : (integrityAnalysis.auraFlag === 'YELLOW' || integrityAnalysis.overallScore < 75 ? 'suspicious' : 'authentic'),
       persistedToDb,
-      message: isRecaptured ? 'SECOND-COPY DETECTED (Screen Replay Photo - Optical PWM Flicker / Screen Emission)' : `Proof generated using ${validSensors}/6 sensors`,
+      message: `Proof generated using ${validSensors}/6 sensors`,
     });
   } catch (error) {
     logger.error(`Error generating proof: ${error.message}`, { stack: error.stack });
