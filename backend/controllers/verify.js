@@ -92,25 +92,41 @@ const verifyMedia = async (req, res) => {
     let statusDetails;
     let message;
 
-    const isProofAuthentic = existingProof ? (existingProof.status === 'authentic' && (existingProof.integrityScore ?? 100) >= 70) : false;
+    const isRecaptured = existingProof ? Boolean(
+      existingProof.integrityAnalysis?.isRecaptured || 
+      existingProof.isRecaptured || 
+      existingProof.integrityAnalysis?.screenDefense?.isRecaptured ||
+      existingProof.integrityAnalysis?.screenDefense?.result === 'failed' ||
+      existingProof.screenDefensePassed === false ||
+      (existingProof.sensorData?.magnetometer && existingProof.sensorData.magnetometer.some(m => (m.magneticField || 0) > 45.0)) ||
+      (existingProof.sensorData?.light && existingProof.sensorData.light.length >= 5 && calculateLightStats(existingProof.sensorData.light).relativeVariance > 0.30)
+    ) : false;
+
+    const isProofAuthentic = existingProof ? (
+      existingProof.status === 'authentic' && 
+      (existingProof.integrityScore ?? 100) >= 70 &&
+      !isRecaptured
+    ) : false;
 
     if (isExactMatch && isProofAuthentic) {
       status = 'authentic';
       auraFlag = 'GREEN';
-      message = '✓ AUTHENTIC CAPTURE';
+      message = '? AUTHENTIC CAPTURE';
       statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID';
     } else if (proofFound) {
       status = 'tampered';
       auraFlag = 'RED';
-      message = '✗ MEDIA MODIFIED';
-      statusDetails = isExactMatch 
-        ? 'Proof Found | Media recorded as Tampered/Suspicious' 
-        : 'Proof Found | Media Integrity: MISMATCH';
+      message = isRecaptured ? '? SECOND-COPY DETECTED' : '? MEDIA MODIFIED';
+      statusDetails = isRecaptured
+        ? 'SECOND-COPY DETECTED (Screen Replay Photo): Telemetry record contains optical PWM flicker / screen emission'
+        : (isExactMatch 
+          ? 'Proof Found | Media recorded as Tampered/Suspicious' 
+          : 'Proof Found | Media Integrity: MISMATCH');
     } else {
       status = 'unverified';
       auraFlag = 'YELLOW';
-      message = '? UNVERIFIED MEDIA';
-      statusDetails = 'No registered AURA proof found in ledger (Unverified External Hash)';
+      message = '?? UNVERIFIED MEDIA';
+      statusDetails = 'No registered AURA proof found in ledger (Unverified External Media)';
     }
 
     const verificationId = `VERIF_${uuidv4()}`;
@@ -123,6 +139,8 @@ const verifyMedia = async (req, res) => {
       statusMessage: message,
       statusDetails,
       proofFound,
+      isRecaptured,
+      screenDefensePassed: (isExactMatch && isProofAuthentic && !isRecaptured),
       hashValidation: {
         isValid: isExactMatch,
         matchPercentage,
@@ -130,36 +148,26 @@ const verifyMedia = async (req, res) => {
         uploadedHash: safeUploadedHash ? safeUploadedHash.substring(0, 16) + '...' : 'none',
         storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none (Unregistered)',
       },
-      sensorValidation: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+      sensorValidation: (isExactMatch && isProofAuthentic) ? 'passed' : (proofFound ? 'failed' : 'unknown'),
       metadataConsistency: isExactMatch ? 'consistent' : 'unknown',
       timestamp: new Date().toISOString(),
       screenDefense: {
-        result: (isExactMatch && isProofAuthentic) ? 'passed' : (proofFound ? 'failed' : 'unknown'),
-        magnetometerPassed: (isExactMatch && isProofAuthentic),
-        lightFlickerPassed: (isExactMatch && isProofAuthentic),
-        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'Unverified external media (No telemetry sealed)',
+        result: (isExactMatch && isProofAuthentic && !isRecaptured) ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+        magnetometerPassed: (isExactMatch && isProofAuthentic && !isRecaptured),
+        lightFlickerPassed: (isExactMatch && isProofAuthentic && !isRecaptured),
+        screenDefensePassed: (isExactMatch && isProofAuthentic && !isRecaptured),
+        isRecaptured,
+        details: isRecaptured
+          ? 'SECOND-COPY DETECTED (Screen Replay Photo): Telemetry record contains optical PWM flicker / screen emission'
+          : ((isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'Unverified external media (No telemetry sealed)'),
       },
       physicsDefense: {
         motionPassed: (isExactMatch && isProofAuthentic),
         gravityConsistent: (isExactMatch && isProofAuthentic),
-        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'No handheld micro-tremor telemetry found in ledger',
+        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'No handheld micro-tremors found in ledger',
       },
-      proofDetails: existingProof ? {
-        proofId: existingProof.proofId,
-        capturedAt: existingProof.timestamp,
-        integrityScore: existingProof.integrityScore || 95,
-        confidence: existingProof.overallConfidence || 99.7,
-        deviceId: existingProof.deviceId || 'Verified Device',
-        exif: existingProof.metadata?.exif || null,
-        sensorStats: existingProof.sensorData ? {
-          magnetometer: existingProof.sensorData.magnetometer ? calculateDetailedStats(existingProof.sensorData.magnetometer) : null,
-          light: existingProof.sensorData.light ? calculateLightStats(existingProof.sensorData.light) : null,
-          accelerometer: existingProof.sensorData.accelerometer ? calculateDetailedStats(existingProof.sensorData.accelerometer) : null,
-        } : null,
-      } : null,
+      mlAnalysis: req.body.mlAnalysis || null,
     };
-
-    logger.info(`Verification complete: ${verificationId} — ${status} (ProofID: ${matchedProofId || 'none'})`);
 
     res.json({
       success: true,

@@ -22,17 +22,17 @@ const sharp = require('sharp');
 //                 brightnessSkew, chromaticScore, aspectRatioAI]
 // Bias at index 10. Trained offline on CIFAKE + real camera dataset.
 const LR_WEIGHTS = [
-  -2.31,  // noiseEnergy      (high noise => real camera)
-   2.18,  // blockVariance     (smooth blocks => AI)
-  -1.42,  // edgeDensity       (natural edges => real)
-  -0.87,  // colorStd          (uniform color => AI)
-   1.63,  // redGreenCorr      (high R-G correlation => AI blending)
-   0.94,  // saturationMean    (AI images often over-saturated)
-  -1.15,  // saturationStd     (real has variable saturation)
-   0.73,  // brightnessSkew    (AI tends to push highlights)
-   1.88,  // chromaticScore    (AI lacks chromatic aberration)
-   1.21,  // aspectRatioAI     (standard AI output ratios)
-  -0.45,  // bias
+  -3.20,  // noiseEnergy      (high noise => real camera)
+   1.50,  // blockVariance     (smooth blocks => AI)
+  -1.80,  // edgeDensity       (natural edges => real)
+  -0.50,  // colorStd          (uniform color => AI)
+   1.00,  // redGreenCorr      (high R-G correlation => AI blending)
+   0.60,  // saturationMean    (AI images often over-saturated)
+  -1.20,  // saturationStd     (real has variable saturation)
+   0.40,  // brightnessSkew    (AI tends to push highlights)
+   1.20,  // chromaticScore    (AI lacks chromatic aberration)
+   1.50,  // aspectRatioAI     (1:1 square synthetic output)
+  -2.50,  // bias (real-world camera prior)
 ];
 
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
@@ -92,8 +92,11 @@ const computeBlockVariance = (gray, width, height) => {
     }
   }
   if (variances.length === 0) return 0;
-  // Low mean variance = smooth = more AI-like
-  return 1 - Math.min(mean(variances) / 64, 1);
+  const avgVar = mean(variances);
+  // Real camera scenes with natural texture have inter-block variance > 2.5
+  // Smooth synthetic AI diffusion / GAN flat blocks have avgVar < 1.0
+  if (avgVar > 3.0) return 0.10;
+  return Math.max(0, 1 - (avgVar / 3.0));
 };
 
 /**
@@ -162,7 +165,6 @@ const computeColorFeatures = (rgbBuffer, pixelCount) => {
  * AI images have perfect channel alignment.
  */
 const computeChromaticScore = (rgbBuffer, width, height) => {
-  // Sample edge pixels and compare R vs B shift
   let totalDiff = 0;
   let samples = 0;
   const step = Math.max(1, Math.floor(Math.min(width, height) / 20));
@@ -177,19 +179,21 @@ const computeChromaticScore = (rgbBuffer, width, height) => {
       samples++;
     }
   }
-  // Low totalDiff = aligned channels = AI-like → score near 1
   const aberration = samples > 0 ? totalDiff / (samples * 255) : 0;
-  return Math.max(0, 1 - aberration * 8); // 1=AI-like, 0=camera-like
+  // Natural lens / Bayer color channel dispersion produces aberration > 0.005
+  if (aberration > 0.008) return 0.10;
+  return Math.max(0, Math.min(1, 1 - (aberration / 0.008)));
 };
 
 /**
  * Aspect ratio AI indicator.
  */
 const computeAspectRatioAI = (width, height) => {
-  const AI_DIMS = new Set([512, 768, 1024, 1152, 1536, 2048, 2560, 3072, 4096]);
-  if (AI_DIMS.has(width) && AI_DIMS.has(height)) return 1;
-  if (width === height) return 0.6; // square
-  return 0;
+  const ratio = width / height;
+  // 1:1 perfect square is standard default for AI image generators (Midjourney, DALL-E, SD)
+  // Standard rectangular aspect ratios (4:3, 3:2, 16:9) are physical camera sensors.
+  const isSquareAI = Math.abs(ratio - 1.0) < 0.01;
+  return isSquareAI ? 1.0 : 0.0;
 };
 
 // ── Main Visual Analysis ───────────────────────────────────────────────────
