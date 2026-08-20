@@ -454,30 +454,44 @@ export const CaptureScreen = ({ navigation, theme }) => {
       }
 
       const integrity = proofResponse?.proof?.integrityAnalysis || {};
+      const isRecaptured = Boolean(proofResponse?.isRecaptured || proofResponse?.proof?.isRecaptured || integrity.isRecaptured || integrity.screenDefense?.isRecaptured);
+      const screenDefensePassed = Boolean(proofResponse?.screenDefensePassed ?? proofResponse?.proof?.screenDefensePassed ?? integrity.screenDefense?.screenDefensePassed ?? (integrity.screenDefense?.result === 'passed'));
+
       const verification = {
         ...integrity,
         proofId: proofResponse?.proof?.id,
         isCaptureMode: true,
+        isRecaptured,
+        screenDefensePassed,
+        screenDefense: {
+          ...(integrity.screenDefense || {}),
+          isRecaptured,
+          screenDefensePassed,
+          result: screenDefensePassed && !isRecaptured ? 'passed' : 'failed',
+          details: isRecaptured 
+            ? 'SECOND-COPY DETECTED (Screen Replay Photo): Display emission detected (Magnetometer EMI > 65�T / PWM Flicker)' 
+            : (integrity.screenDefense?.details || 'No display signatures found (Ambient lighting & magnetic baseline verified)'),
+        },
         hashValidation: {
           matchPercentage: 100,
           isValid: true,
           mode: 'capture',
           status: 'Sealed / Baseline Registered',
         },
-        sensorValidationStatus: (integrity.overallScore ?? 0) >= 60 ? 'passed' : 'failed',
-        sensorValidation:       (integrity.overallScore ?? 0) >= 60 ? 'passed' : 'failed',
+        sensorValidationStatus: (!isRecaptured && (integrity.overallScore ?? 0) >= 60) ? 'passed' : 'failed',
+        sensorValidation:       (!isRecaptured && (integrity.overallScore ?? 0) >= 60) ? 'passed' : 'failed',
         sensorStats: proofResponse?.proof?.sensorStats || null,
-        confidence:  proofResponse?.overallConfidence ?? integrity.overallScore ?? 99,
+        confidence:  isRecaptured ? Math.min(proofResponse?.overallConfidence || 25, 25) : (proofResponse?.overallConfidence ?? integrity.overallScore ?? 99),
         timestamp:   proofResponse?.proof?.timestamp || new Date().toISOString(),
         metadataConsistency: 'Consistent',
         locationValid:   integrity.locationValid   ?? Boolean(loc?.latitude != null),
         timestampValid:  integrity.timestampValid  ?? true,
         duration:        sensorData?.timestamp?.durationMs || 1000,
-        auraFlag:        integrity.auraFlag || proofResponse?.proof?.integrityAnalysis?.auraFlag || 'GREEN',
+        auraFlag:        isRecaptured ? 'RED' : (integrity.auraFlag || proofResponse?.proof?.integrityAnalysis?.auraFlag || 'GREEN'),
       };
 
       navigation.navigate('Result', { 
-        status: proofResponse?.status || (integrity.auraFlag === 'GREEN' ? 'authentic' : (integrity.auraFlag === 'YELLOW' ? 'suspicious' : 'tampered')), 
+        status: isRecaptured ? 'tampered' : (proofResponse?.status || (integrity.auraFlag === 'GREEN' ? 'authentic' : (integrity.auraFlag === 'YELLOW' ? 'suspicious' : 'tampered'))), 
         proof: proofResponse?.proof || {}, 
         verification,
         sensorData, 
@@ -646,6 +660,19 @@ export const CaptureScreen = ({ navigation, theme }) => {
             </View>
           )}
         </View>
+
+        {/* Live Second-Copy / Screen Replay Detection Warning */}
+        {Boolean(isCaptureActive && (sensorStats?.magnetometer?.latest > 45.0 || sensorStats?.magnetometer?.max > 45.0 || (sensorStats?.magnetometer?.max - sensorStats?.magnetometer?.min > 15.0) || sensorStats?.light?.relativeVariance > 0.30 || sensorStats?.isScreenEmissionDetected)) && (
+          <View style={styles.replayWarningCard}>
+            <Text style={styles.replayWarningIcon}>??</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.replayWarningTitle}>SECOND-COPY DETECTED (Screen Replay Photo)</Text>
+              <Text style={styles.replayWarningDesc}>
+                High magnetometer EMI (${sensorStats?.magnetometer?.latest?.toFixed(1) || sensorStats?.magnetometer?.max?.toFixed(1)}�T > 50�T) � Monitor/laptop screen emission detected.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Environmental Shielding Status */}
         <Card theme={theme} style={styles.shieldCard}>

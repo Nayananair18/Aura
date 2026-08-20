@@ -24,6 +24,62 @@ const getStyles = (theme) => {
       paddingBottom: spacing.xxxl,
     },
 
+    // Second-Copy Replay Warning Banner
+    recapturedWarningBanner: {
+      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+      borderColor: colors.error || '#EF4444',
+      borderWidth: 2,
+      borderRadius: 14,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    recapturedWarningIcon: {
+      fontSize: 26,
+    },
+    recapturedWarningTitle: {
+      ...typography.callout,
+      fontWeight: '800',
+      color: colors.error || '#EF4444',
+      letterSpacing: 0.5,
+    },
+    recapturedWarningDesc: {
+      ...typography.footnote,
+      color: colors.textSecondary,
+      marginTop: 2,
+      lineHeight: 18,
+    },
+
+    // Unverified External Upload Banner
+    unverifiedWarningBanner: {
+      backgroundColor: 'rgba(245, 158, 11, 0.15)',
+      borderColor: '#F59E0B',
+      borderWidth: 2,
+      borderRadius: 14,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    unverifiedWarningIcon: {
+      fontSize: 26,
+    },
+    unverifiedWarningTitle: {
+      ...typography.callout,
+      fontWeight: '800',
+      color: '#F59E0B',
+      letterSpacing: 0.5,
+    },
+    unverifiedWarningDesc: {
+      ...typography.footnote,
+      color: colors.textSecondary,
+      marginTop: 2,
+      lineHeight: 18,
+    },
+
     // Status
     statusBadge: {
       alignItems: 'center',
@@ -300,22 +356,34 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   const isHashMatch = Boolean(hashValidation.isValid && (hashValidation.matchPercentage ?? 0) > 0);
   const hashValid = isCaptureMode ? true : isHashMatch;
   const aiProbability = mlAnalysis?.aiProbability ?? 0;
-  const screenPassed = verification.screenDefense?.result === 'passed' || 
-    (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
-  const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
+  // ONLY true if explicitly flagged as a screen replay / second-copy capture
+  const isRecaptured = Boolean(
+    verification.isRecaptured === true || 
+    verification.screenDefense?.isRecaptured === true
+  );
 
-  // Strict Decision Engine Rule: "No Physical Proof = Not Verified"
+  const screenPassed = isCaptureMode 
+    ? (!isRecaptured && verification.screenDefensePassed !== false && verification.screenDefense?.result !== 'failed')
+    : (isHashMatch && !isRecaptured && (verification.screenDefense?.result === 'passed' || verification.screenDefense?.screenDefensePassed === true));
+
+  const physicsPassed = isCaptureMode
+    ? Boolean(verification.physicsDefense?.motionPassed)
+    : (isHashMatch ? Boolean(verification.physicsDefense?.motionPassed) : false);
+
+  // Decision Engine:
+  // 1. If screen replay triggered: STRICT RED (Second-Copy Photo Detected)
+  // 2. If unregistered external upload: YELLOW (Unverified External Media), NOT second-copy
+  // 3. If authentic capture with hardware EXIF: GREEN
   let evaluatedFlag = verification.auraFlag || 'GREEN';
 
-  if (!isCaptureMode && !isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
+  if (isRecaptured || status === 'tampered' || verification.auraFlag === 'RED') {
     evaluatedFlag = 'RED';
   } else if (!isCaptureMode && !isHashMatch) {
     // Unregistered external upload without authentic ledger proof
-    evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
-  } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
+    evaluatedFlag = (aiProbability >= 70) ? 'RED' : 'YELLOW';
+  } else if (!physicsPassed || aiProbability >= 70 || !hashValid) {
     evaluatedFlag = 'RED';
   } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
-    // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
     evaluatedFlag = 'YELLOW';
   } else if (verification.auraFlag === 'GREEN' && screenPassed && physicsPassed && hasHardwareExif && aiProbability < 25 && hashValid) {
     evaluatedFlag = 'GREEN';
@@ -374,21 +442,23 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   // Status Badge visual configurations
   const badgeConfig = {
     GREEN: {
-      icon: '✓',
+      icon: '?',
       title: 'A.U.R.A. Verified',
       subtitle: 'Environmental Physics Sealed',
       color: colors.authentic || '#22C55E',
     },
     YELLOW: {
-      icon: '?',
-      title: 'Uncertain Authenticity',
-      subtitle: 'Missing physical proof or elevated synthetic signals',
+      icon: '??',
+      title: 'Unverified External Media',
+      subtitle: 'No physical sensor telemetry sealed in ledger',
       color: '#F59E0B',
     },
     RED: {
-      icon: '✗',
-      title: 'Integrity Failure',
-      subtitle: 'Physics violation or high AI generation probability',
+      icon: '?',
+      title: isRecaptured ? 'Second-Copy Detected' : 'Integrity Failure',
+      subtitle: isRecaptured 
+        ? 'Screen Replay Attack (Display Optical PWM / Magnetometer EMI)' 
+        : 'Physics violation or high AI generation probability',
       color: colors.error || '#EF4444',
     },
   };
@@ -404,6 +474,30 @@ export const ResultScreen = ({ route, navigation, theme }) => {
       />
 
       <View style={styles.content}>
+        {/* Dedicated Warning Indicator: Second-Copy Screen Replay */}
+        {isRecaptured ? (
+          <View style={styles.recapturedWarningBanner}>
+            <Text style={styles.recapturedWarningIcon}>??</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.recapturedWarningTitle}>SECOND-COPY DETECTED (Screen Replay Photo)</Text>
+              <Text style={styles.recapturedWarningDesc}>
+                {verification.screenDefense?.details || 'Display emission detected: Optical PWM flicker or Magnetometer EMI spike.'}
+              </Text>
+            </View>
+          </View>
+        ) : (!isCaptureMode && !isHashMatch) ? (
+          /* Dedicated Neutral Indicator: Unverified External Media */
+          <View style={styles.unverifiedWarningBanner}>
+            <Text style={styles.unverifiedWarningIcon}>??</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.unverifiedWarningTitle}>UNVERIFIED EXTERNAL MEDIA</Text>
+              <Text style={styles.unverifiedWarningDesc}>
+                No physical sensor telemetry sealed in ledger (External file upload).
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {/* Status Badge */}
         <View style={styles.statusBadge}>
           <View style={[styles.statusIconCircle, { backgroundColor: activeBadge.color }]}>

@@ -36,9 +36,9 @@ export class SensorManager {
     };
 
     // Set update intervals (100ms = 10 readings/sec)
-    SensorExpo.Accelerometer.setUpdateInterval(100);
-    SensorExpo.Gyroscope.setUpdateInterval(100);
-    SensorExpo.Magnetometer.setUpdateInterval(100);
+    SensorExpo.Accelerometer.setUpdateInterval(50);
+    SensorExpo.Gyroscope.setUpdateInterval(50);
+    SensorExpo.Magnetometer.setUpdateInterval(50);
 
     // 1. Accelerometer
     const accelSub = SensorExpo.Accelerometer.addListener((data) => {
@@ -78,7 +78,7 @@ export class SensorManager {
     try {
       const lightAvailable = await SensorExpo.LightSensor.isAvailableAsync();
       if (lightAvailable) {
-        SensorExpo.LightSensor.setUpdateInterval(200);
+        SensorExpo.LightSensor.setUpdateInterval(50);
         const lightSub = SensorExpo.LightSensor.addListener((data) => {
           this.lightData.push({
             lux: data.illuminance,
@@ -196,13 +196,18 @@ export class SensorManager {
       return [0, elapsed * 0.25, elapsed * 0.5, elapsed * 0.75, elapsed];
     };
 
+    const magnetStats = calcMagnitude(this.magnetometerData);
+    const lightStats = calcLight(this.lightData);
+    const isEmiSpike = Boolean(magnetStats && (magnetStats.latest > 50.0 || magnetStats.max > 50.0 || (magnetStats.max - magnetStats.min) > 20.0));
+
     return {
       accelerometer: calcMagnitude(this.accelerometerData),
       gyroscope: calcMagnitude(this.gyroscopeData),
-      magnetometer: calcMagnitude(this.magnetometerData),
-      light: calcLight(this.lightData),
+      magnetometer: magnetStats,
+      light: lightStats,
       location: { ...this.locationData, history: getLocationHistory() },
       timestamp: { ...this.captureTimestamp, history: getTimestampHistory() },
+      isScreenEmissionDetected: isEmiSpike,
     };
   }
 

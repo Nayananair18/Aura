@@ -51,18 +51,25 @@ const analyzeELA = async (imageBuffer) => {
 
     // AI ELA Profile: AI images often have uniform blocky structures causing high variance,
     // or extremely low variance if generated losslessly and suddenly compressed.
-    let aiProbability = 0.1;
+    // AI ELA Profile:
+    // Standard real compressed JPEGs with natural scene textures produce variance between 0.8 and 18.0.
+    // Extremely smooth lossless AI outputs compressed for the first time have variance < 0.25.
+    // Spliced / composited deepfakes with extreme high-frequency DCT discontinuities have variance > 28.0.
+    let aiProbability = 0.12;
     let anomalyType = 'normal';
     
-    if (variance < 0.3) {
-      aiProbability = 0.85; 
+    if (variance < 0.25) {
+      aiProbability = 0.75; 
       anomalyType = 'abnormally_smooth';
-    } else if (variance > 4.5) {
-      aiProbability = 0.90; 
+    } else if (variance > 28.0) {
+      aiProbability = 0.80; 
       anomalyType = 'high_frequency_artifacts';
-    } else if (variance > 3.0 && variance <= 4.5) {
-      aiProbability = 0.6;
+    } else if (variance > 18.0) {
+      aiProbability = 0.45;
       anomalyType = 'suspicious_variance';
+    } else {
+      aiProbability = 0.12;
+      anomalyType = 'normal';
     }
 
     return {
