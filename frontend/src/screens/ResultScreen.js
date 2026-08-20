@@ -335,6 +335,29 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : 0.0));
   const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
 
+  // ── ML Classification → Badge mapping ──────────────────────────
+  // The ML classification from the backend is the primary result indicator.
+  // It is derived from the full forensic fusion: KNN + Visual CNN + ELA + Screen.
+  //
+  // In verify mode (uploaded image): use mlAnalysis.classification as primary.
+  // In capture mode (live capture): sensor proof (auraFlag) is primary.
+  //   ML analysis supplements but does not override sensor evidence.
+  //
+  // This fixes the highlight bug: the badge now always reflects the actual
+  // highest-confidence classification from the backend, not a derived sensor flag.
+  const mlClassification = mlAnalysis?.classification; // 'REAL' | 'AI_GENERATED' | 'SCREEN_RECAPTURE' | 'NOT_VERIFIED'
+
+  // Map ML classification to a display flag key
+  const ML_FLAG_MAP = {
+    REAL:             'GREEN',
+    REAL_CAMERA:      'GREEN',    // backward compat
+    AI_GENERATED:     'RED',
+    SCREEN_RECAPTURE: 'SCREEN',
+    NOT_VERIFIED:     'YELLOW',
+    UNCERTAIN:        'YELLOW',   // backward compat
+  };
+  const mlFlag = mlClassification ? (ML_FLAG_MAP[mlClassification] || 'YELLOW') : null;
+
   const displayHashMatch = isCaptureMode
     ? '100% (Baseline Sealed)'
     : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0% Match / Unregistered');
@@ -372,28 +395,61 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   };
 
   // Status Badge visual configurations
+  // GREEN  = Authentic (sensor + ML agree)
+  // YELLOW = Not verified / uncertain / NOT_VERIFIED
+  // RED    = AI generated / tampered
+  // SCREEN = Screen recapture detected
   const badgeConfig = {
     GREEN: {
       icon: '✓',
       title: 'A.U.R.A. Verified',
-      subtitle: 'Environmental Physics Sealed',
+      subtitle: 'Physical camera evidence verified. No strong AI or screen-recapture indicators detected.',
       color: colors.authentic || '#22C55E',
     },
     YELLOW: {
       icon: '?',
-      title: 'Uncertain Authenticity',
-      subtitle: 'Missing physical proof or elevated synthetic signals',
+      title: 'Not Verified',
+      subtitle: 'Insufficient or conflicting forensic evidence to classify this image. Missing physical proof or ambiguous signals.',
       color: '#F59E0B',
     },
     RED: {
       icon: '✗',
-      title: 'Integrity Failure',
-      subtitle: 'Physics violation or high AI generation probability',
+      title: 'AI Generated Detected',
+      subtitle: 'The image shows strong evidence consistent with AI-generated content.',
       color: colors.error || '#EF4444',
+    },
+    SCREEN: {
+      icon: '🖥',
+      title: 'Screen Recapture Detected',
+      subtitle: 'This image appears to be a photograph of content displayed on a digital screen. The authenticity of the original displayed content cannot be determined from this capture alone.',
+      color: '#8B5CF6',
     },
   };
 
-  const activeBadge = badgeConfig[evaluatedFlag] || badgeConfig.YELLOW;
+  // ── Determine which badge to show ──────────────────────────────
+  // Priority:
+  //   1. In verify mode + mlAnalysis available → use mlFlag (ML classification is primary)
+  //   2. In capture mode → use evaluatedFlag (sensor proof is primary)
+  //   3. Fallback → evaluatedFlag
+  //
+  // This ensures the highlighted class always matches the actual backend prediction.
+  let activeFlagKey;
+  if (!isCaptureMode && mlFlag) {
+    // Verify mode: ML classification is the primary result
+    // (The image has no sensor telemetry — only visual/EXIF forensics are available)
+    activeFlagKey = mlFlag;
+  } else {
+    // Capture mode: sensor proof is primary
+    // Override with ML screen classification if screen is strongly detected
+    // (phone photographing screen would have valid sensor data)
+    if (mlFlag === 'SCREEN') {
+      activeFlagKey = 'SCREEN';
+    } else {
+      activeFlagKey = evaluatedFlag;
+    }
+  }
+
+  const activeBadge = badgeConfig[activeFlagKey] || badgeConfig.YELLOW;
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -412,7 +468,15 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           <Text style={styles.statusTitle}>{activeBadge.title}</Text>
           <Text style={styles.statusSubtitle}>{activeBadge.subtitle}</Text>
           <View style={[styles.auraFlag, { backgroundColor: activeBadge.color }]}>
-            <Text style={styles.auraFlagText}>A.U.R.A. FLAG: {evaluatedFlag}</Text>
+            <Text style={styles.auraFlagText}>
+              {activeFlagKey === 'SCREEN'
+                ? 'SCREEN RECAPTURE'
+                : (mlClassification && !isCaptureMode
+                    ? `ML: ${mlClassification}`
+                    : `A.U.R.A. FLAG: ${evaluatedFlag}`
+                  )
+              }
+            </Text>
           </View>
         </View>
 

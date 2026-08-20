@@ -205,6 +205,10 @@ const storeVerificationResult = async (req, res) => {
       status = 'tampered';
     } else if (rawStatus.includes('inconc') || rawStatus.includes('amber') || rawStatus.includes('yellow')) {
       status = 'inconclusive';
+    } else if (rawStatus.includes('screen_recapture') || rawStatus.includes('screen')) {
+      status = 'screen_recapture';
+    } else if (rawStatus.includes('not_verified') || rawStatus.includes('not_ver')) {
+      status = 'not_verified';
     } else {
       status = 'unverified';
     }
