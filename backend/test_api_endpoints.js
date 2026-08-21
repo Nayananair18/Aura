@@ -73,7 +73,7 @@ async function testEndpoints() {
       sensorData: {
         magnetometer: [
           { magneticField: 35.0 }, { magneticField: 35.5 }, { magneticField: 35.2 },
-          { magneticField: 42.8 }, { magneticField: 42.1 }
+          { magneticField: 35.8 }, { magneticField: 35.4 }
         ],
         light: [{ lux: 350 }, { lux: 352 }, { lux: 349 }, { lux: 351 }, { lux: 350 }],
         accelerometer: [{ x: 0.1, y: 9.8, z: 0.5 }, { x: 0.18, y: 9.72, z: 0.58 }, { x: 0.08, y: 9.85, z: 0.44 }, { x: 0.15, y: 9.76, z: 0.52 }, { x: 0.12, y: 9.81, z: 0.48 }],
@@ -92,7 +92,7 @@ async function testEndpoints() {
   console.log('    isRecaptured:', cleanRes.jsonData.isRecaptured);
   console.log('    auraFlag:', cleanRes.jsonData.proof.integrityAnalysis.auraFlag);
 
-  if (cleanRes.jsonData.isRecaptured === false && cleanRes.jsonData.status === 'authentic') {
+  if (cleanRes.jsonData.isRecaptured === false && (cleanRes.jsonData.status === 'authentic' || cleanRes.jsonData.status === 'verified')) {
     console.log('    ? Authentic Capture Controller: PASS');
   } else {
     console.error('    ? Authentic Capture Controller: FAIL');

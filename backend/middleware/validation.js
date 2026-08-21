@@ -1,4 +1,4 @@
-const { body, validationResult } = require('express-validator');
+﻿const { body, validationResult } = require('express-validator');
 
 /**
  * Validate generate proof request (supports all 6 sensor types)
@@ -19,14 +19,14 @@ const validateGenerateProof = [
 
 /**
  * Validate verify media request
+ * Supports both Proof ID lookup and direct media hash/image upload verification
  */
 const validateVerifyMedia = [
-  // fileHash is optional — the frontend sends null when verifying an image
-  // that was not previously registered (gallery upload path).
+  body('proofId').optional({ nullable: true }).isString().trim(),
   body('fileHash').optional({ nullable: true }),
-  body('metadata').isObject().withMessage('Metadata is required'),
-  body('metadata.fileName').notEmpty().withMessage('File name is required'),
-  body('uploadedMediaHash').notEmpty().withMessage('Uploaded media hash is required'),
+  body('uploadedMediaHash').optional({ nullable: true }),
+  body('metadata').optional({ nullable: true }).isObject().withMessage('Metadata must be an object'),
+  body('metadata.fileName').optional({ nullable: true }),
 ];
 
 /**
@@ -50,6 +50,15 @@ const validateAnalyzeMetadata = [
 ];
 
 /**
+ * Validate decode QR request
+ */
+const validateDecodeQr = [
+  body('image')
+    .notEmpty().withMessage('image is required')
+    .isString().withMessage('image must be a base64 string'),
+];
+
+/**
  * Handle validation errors
  */
 const handleValidationErrors = (req, res, next) => {
@@ -68,5 +77,6 @@ module.exports = {
   validateVerifyMedia,
   validateStoreResult,
   validateAnalyzeMetadata,
+  validateDecodeQr,
   handleValidationErrors,
 };

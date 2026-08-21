@@ -1,17 +1,84 @@
 import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
- * Request camera permissions
+ * Request camera permissions asynchronously
  */
 export const requestCameraPermission = async () => {
   try {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    return status === 'granted';
+    if (Camera?.requestCameraPermissionsAsync) {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      return status === 'granted';
+    }
+    return true;
   } catch (error) {
     console.error('Error requesting camera permission:', error);
     return false;
   }
+};
+
+/**
+ * Get current camera permissions asynchronously
+ */
+export const getCameraPermission = async () => {
+  try {
+    if (Camera?.getCameraPermissionsAsync) {
+      const result = await Camera.getCameraPermissionsAsync();
+      return result;
+    }
+    return { status: 'granted', granted: true };
+  } catch (error) {
+    console.error('Error checking camera permission:', error);
+    return { status: 'undetermined', granted: false };
+  }
+};
+
+/**
+ * Modern safe camera permissions hook that avoids deprecated createPermissionHook
+ */
+export const useCameraPermissions = () => {
+  const [permission, setPermission] = useState(null);
+
+  const requestPermission = useCallback(async () => {
+    try {
+      if (Camera?.requestCameraPermissionsAsync) {
+        const res = await Camera.requestCameraPermissionsAsync();
+        setPermission(res);
+        return res;
+      }
+      const fallback = { status: 'granted', granted: true };
+      setPermission(fallback);
+      return fallback;
+    } catch (e) {
+      console.warn('Error requesting camera permission:', e.message);
+      const denied = { status: 'denied', granted: false };
+      setPermission(denied);
+      return denied;
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const check = async () => {
+      try {
+        if (Camera?.getCameraPermissionsAsync) {
+          const res = await Camera.getCameraPermissionsAsync();
+          if (isMounted) setPermission(res);
+        } else {
+          if (isMounted) setPermission({ status: 'granted', granted: true });
+        }
+      } catch (e) {
+        if (isMounted) setPermission({ status: 'undetermined', granted: false });
+      }
+    };
+    check();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  return [permission, requestPermission];
 };
 
 /**
@@ -81,6 +148,8 @@ export const saveVideoToLibrary = async (videoUri) => {
 
 export default {
   requestCameraPermission,
+  getCameraPermission,
+  useCameraPermissions,
   requestMediaLibraryPermission,
   savePhotoToLibrary,
   saveVideoToLibrary,

@@ -22,8 +22,8 @@ process.on('unhandledRejection', (reason) => {
 
 process.on('uncaughtException', (error) => {
   if (error.code === 'EADDRINUSE') {
-    logger.error(`? Port ${PORT} is already in use by another running process.`);
-    logger.info(`?? If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
+    logger.error(`Port ${PORT} is already in use by another running process.`);
+    logger.info(`If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
   } else {
     logger.error(`Uncaught Exception: ${error.stack || error.message || error}`);
   }
@@ -47,10 +47,10 @@ const app = express();
 const connectDatabase = async () => {
   try {
     await mongoose.connect(config.mongodbUri);
-    logger.info('? MongoDB connected successfully');
+    logger.info('MongoDB connected successfully');
     logger.info(`Database: ${config.mongodbUri}`);
   } catch (error) {
-    logger.error(`? MongoDB connection failed: ${error.message}`);
+    logger.error(`MongoDB connection failed: ${error.message}`);
     logger.warn('Running without database persistence (mock API mode)');
   }
 };
@@ -85,6 +85,7 @@ app.use('/api', globalLimiter);
 
 app.use('/api/media', mediaRoutes);
 app.use('/api/verification', verificationRoutes);
+app.use('/api/verify', verificationRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -107,6 +108,7 @@ app.get('/api', (req, res) => {
       ping: 'GET /api/ping',
       generateProof: 'POST /api/media/generate-proof',
       verifyMedia: 'POST /api/media/verify',
+      scanQr: 'POST /api/verify/scan-qr (or POST /api/media/decode-qr)',
       analyzeMetadata: 'POST /api/media/analyze-metadata',
       storeResult: 'POST /api/verification/store',
       getHistory: 'GET /api/verification/history',
@@ -183,19 +185,19 @@ const startServer = async () => {
   server = app.listen(PORT, '0.0.0.0', () => {
     logger.info('');
     logger.info('+--------------------------------------------+');
-    logger.info('�      ???  A.U.R.A. Backend Server          �');
+    logger.info('|        A.U.R.A. Backend Server             |');
     logger.info('+--------------------------------------------+');
-    logger.info(`? Server running on LAN: http://${localIP}:${PORT}`);
-    logger.info(`?? Local address: http://localhost:${PORT}`);
-    logger.info(`?? API Documentation: http://${localIP}:${PORT}/api`);
-    logger.info(`?? Environment: ${config.nodeEnv}`);
-    logger.info(`???  A.U.R.A. Defense Engine: ACTIVE`);
+    logger.info(`Server running on LAN: http://${localIP}:${PORT}`);
+    logger.info(`Local address: http://localhost:${PORT}`);
+    logger.info(`API Documentation: http://${localIP}:${PORT}/api`);
+    logger.info(`Environment: ${config.nodeEnv}`);
+    logger.info(`A.U.R.A. Defense Engine: ACTIVE`);
   });
 
   server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {
-      logger.error(`? Port ${PORT} is already in use by another running process.`);
-      logger.info(`?? If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
+      logger.error(`Port ${PORT} is already in use by another running process.`);
+      logger.info(`If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
       process.exit(1);
     } else {
       logger.error(`Server Error: ${error.message}`, { stack: error.stack });
