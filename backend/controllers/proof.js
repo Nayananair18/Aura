@@ -104,7 +104,7 @@ const generateAuthenticityProof = async (req, res) => {
             const pg = data[i - info.channels + 1];
             const pb = data[i - info.channels + 2];
             const prevBrightness = (pr + pg + pb) / 3;
-            
+
             const diffLuma = Math.abs(brightness - prevBrightness);
             if (diffLuma > 10) edgeEnergy += diffLuma;
 
@@ -127,16 +127,16 @@ const generateAuthenticityProof = async (req, res) => {
 
         // 1. Digital Screen Fingerprints (Three distinct traps)
         // Trap A: Absolute Screen (Desktops, Laptops, Browsers) -> High absolute dispersion
-        const isAbsoluteScreen = avgChromaticDispersion > 3.8;
-        
+        const isAbsoluteScreen = avgChromaticDispersion > 6.0;
+
         // Trap B: High-DPI UI/Text (Phones displaying text) -> Structural dispersion dominates edge intensity
-        const isHighDpiTextScreen = avgChromaticDispersion > 1.5 && dispersionRatio > 0.60;
-        
+        const isHighDpiTextScreen = avgChromaticDispersion > 3.5 && dispersionRatio > 0.85;
+
         // Trap C: Flagship OLED Phones displaying natural images (Photos) -> Extreme high density, very low Moiré
         // Modern OLEDs are so dense they only produce ~0.44 chromatic dispersion.
         // We catch them by their midtones. Books have almost NO midtones (extremeContrastRatio > 0.90).
-        // If an image has high midtones (extremeContrastRatio < 0.85) AND structural dispersion > 0.40, it's an OLED screen.
-        const isPhoneScreenImage = avgChromaticDispersion > 0.40 && extremeContrastRatio < 0.85;
+        // If an image has high midtones (extremeContrastRatio < 0.75) AND structural dispersion > 0.80, it's an OLED screen.
+        const isPhoneScreenImage = avgChromaticDispersion > 2.0 && extremeContrastRatio < 0.60;
 
         isDisplayScreenImage = Boolean(isAbsoluteScreen || isHighDpiTextScreen || isPhoneScreenImage);
 
@@ -197,12 +197,12 @@ const generateAuthenticityProof = async (req, res) => {
     const finalAuraFlag = isRecaptured ? 'RED' : 'GREEN';
     const finalStatus = isRecaptured ? 'tampered' : 'verified';
     const finalClassification = isRecaptured ? 'SCREEN_REPLAY' : 'AUTHENTIC_CAMERA';
-    
+
     const screenDefensePassed = !isRecaptured;
     const sensorsPassed = !isRecaptured && validSensors > 0;
     let failureReason = null;
     if (isRecaptured) {
-        failureReason = replayReason || 'SECOND-COPY DETECTED (Screen Replay Photo): Electronic screen emission or digital UI detected';
+      failureReason = replayReason || 'SECOND-COPY DETECTED (Screen Replay Photo): Electronic screen emission or digital UI detected';
     }
 
     const integrityScore = isRecaptured ? 25 : (sensorsPassed ? 98 : 45);
@@ -419,7 +419,7 @@ const getProof = async (req, res) => {
       });
     }
 
-    
+
     if (!proof) {
       return res.status(404).json({
         success: false,
