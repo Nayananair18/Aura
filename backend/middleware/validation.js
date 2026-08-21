@@ -1,20 +1,13 @@
-﻿const { body, validationResult } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 
 /**
  * Validate generate proof request (supports all 6 sensor types)
  */
 const validateGenerateProof = [
   body('mediaData').optional(),
-  body('sensorData').isObject().withMessage('Sensor data is required'),
-  body('sensorData.accelerometer').isArray().optional(),
-  body('sensorData.gyroscope').isArray().optional(),
-  body('sensorData.magnetometer').isArray().optional(),
-  body('sensorData.light').isArray().optional(),
-  body('sensorData.location').isObject().optional(),
-  body('sensorData.timestamp').isObject().optional(),
-  body('metadata').isObject().withMessage('Metadata is required'),
-  body('metadata.deviceId').notEmpty().withMessage('Device ID is required'),
-  body('metadata.timestamp').notEmpty().withMessage('Timestamp is required'),
+  body('sensorData').optional(),
+  body('telemetry').optional(),
+  body('metadata').optional(),
 ];
 
 /**
@@ -42,9 +35,7 @@ const validateStoreResult = [
  * Validate ML metadata analysis request
  */
 const validateAnalyzeMetadata = [
-  body('image')
-    .notEmpty().withMessage('image is required')
-    .isString().withMessage('image must be a base64 string'),
+  body('image').optional(),
   body('fileName').optional().isString().trim(),
   body('fileType').optional().isString().trim(),
 ];

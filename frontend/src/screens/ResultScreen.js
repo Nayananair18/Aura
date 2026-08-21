@@ -338,7 +338,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   const physicalFingerprint = mlAnalysis?.metadataFingerprint || proof?.exif || metadata?.exif || null;
 
   const hashValidation = verification.hashValidation || {};
-  const rawHashMatch = params.hashMatch ?? verification.hashMatch ?? hashValidation.matchPercentage;
+  const rawHashMatch = params.matchPercentage ?? params.hashMatch ?? verification.hashMatch ?? hashValidation.matchPercentage;
   const hashMatchNum = rawHashMatch != null ? Number(rawHashMatch) : (isCaptureMode ? 100 : (hashValidation.isValid ? 100 : 0));
   const isHashMatch = isCaptureMode ? true : (hashMatchNum === 100 || Boolean(hashValidation.isValid));
 

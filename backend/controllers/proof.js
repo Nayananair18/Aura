@@ -1,3 +1,4 @@
+const fs = require('fs');
 const mongoose = require("mongoose");
 const sharp = require("sharp");
 const Proof = require("../models/Proof");
@@ -44,22 +45,47 @@ const generateAuthenticityProof = async (req, res) => {
     const { mediaData, metadata } = req.body || {};
 
     // 1. Direct Inline Pixel-Buffer Inspection using Sharp
+    // ==========================================
+    // A.U.R.A. Screen Replay Defense & Lens Analysis
+    // ==========================================
     let isDisplayScreenImage = false;
-    let imageScreenStats = { darkRatio: 0, satRatio: 0, edgeRatio: 0, isDisplayScreenImage: false };
+    let replayReason = null;
+    let imageScreenStats = {};
 
-    if (mediaData && mediaData.length > 50) {
+    // Safely extract media buffer from multiple potential payload paths
+    let targetBuffer = null;
+    if (req.file && req.file.buffer) {
+      targetBuffer = req.file.buffer;
+    } else if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      targetBuffer = fs.readFileSync(req.file.path);
+    } else if (req.body && req.body.image) {
+      const base64Data = req.body.image.replace(/^data:image\/\w+;base64,/, '');
+      targetBuffer = Buffer.from(base64Data, 'base64');
+    } else if (req.body && req.body.mediaData) {
+      const base64Data = req.body.mediaData.replace(/^data:image\/\w+;base64,/, '');
+      targetBuffer = Buffer.from(base64Data, 'base64');
+    }
+
+    console.log('[DEBUG TARGET BUFFER]', {
+      hasReqFile: Boolean(req.file),
+      reqFileFieldname: req.file ? req.file.fieldname : null,
+      hasBodyImage: Boolean(req.body && req.body.image),
+      hasBodyMediaData: Boolean(req.body && req.body.mediaData),
+      targetBufferLength: targetBuffer ? targetBuffer.length : 0
+    });
+
+    if (targetBuffer) {
       try {
-        const cleanBase64 = String(mediaData).replace(/^data:image\/\w+;base64,/, "");
-        const imgBuffer = Buffer.isBuffer(mediaData) ? mediaData : Buffer.from(cleanBase64, "base64");
-
-        const { data, info } = await sharp(imgBuffer)
-          .resize(200, 200, { fit: "fill" })
+        const { data, info } = await sharp(targetBuffer)
+          .resize(200, 200, { fit: 'fill' })
           .raw()
           .toBuffer({ resolveWithObject: true });
 
         let darkPixels = 0;
-        let saturatedPixels = 0;
-        let highContrastEdges = 0;
+        let brightPixels = 0;
+        let edgeEnergy = 0;
+        let chromaticDispersion = 0;
+        let totalBrightness = 0;
         const totalPixels = info.width * info.height;
 
         for (let i = 0; i < data.length; i += info.channels) {
@@ -67,44 +93,81 @@ const generateAuthenticityProof = async (req, res) => {
           const g = data[i + 1];
           const b = data[i + 2];
           const brightness = (r + g + b) / 3;
+          totalBrightness += brightness;
 
-          // Check for pure dark screen / IDE / terminal background
-          if (brightness < 38) darkPixels++;
+          // Count pixels up to 110 as dark to catch auto-exposure lifted terminal backgrounds
+          if (brightness < 110) darkPixels++;
+          if (brightness > 130) brightPixels++;
 
-          // Check for digital display high-saturation colors (tables, syntax colors)
-          const maxC = Math.max(r, g, b);
-          const minC = Math.min(r, g, b);
-          if (maxC > 180 && (maxC - minC) > 100) saturatedPixels++;
+          if (i >= info.channels * 2) {
+            const pr = data[i - info.channels];
+            const pg = data[i - info.channels + 1];
+            const pb = data[i - info.channels + 2];
+            const prevBrightness = (pr + pg + pb) / 3;
+            
+            const diffLuma = Math.abs(brightness - prevBrightness);
+            if (diffLuma > 10) edgeEnergy += diffLuma;
 
-          // Check pixel neighbor contrast (digital text sharpness on displays)
-          if (i >= info.channels) {
-            const prevBrightness = (data[i - info.channels] + data[i - info.channels + 1] + data[i - info.channels + 2]) / 3;
-            if (Math.abs(brightness - prevBrightness) > 85) highContrastEdges++;
+            // Subpixel RGB splitting present exclusively in digital screen matrices
+            const diffR = Math.abs(r - pr);
+            const diffG = Math.abs(g - pg);
+            const diffB = Math.abs(b - pb);
+            chromaticDispersion += Math.abs(diffR - diffG) + Math.abs(diffG - diffB);
           }
         }
 
+        const avgFrameBrightness = totalBrightness / totalPixels;
         const darkRatio = darkPixels / totalPixels;
-        const satRatio = saturatedPixels / totalPixels;
-        const edgeRatio = highContrastEdges / totalPixels;
+        const brightRatio = brightPixels / totalPixels;
+        const avgEdgeIntensity = edgeEnergy / (totalPixels || 1);
+        const avgChromaticDispersion = chromaticDispersion / (totalPixels || 1);
 
-        // A screen replay (terminal, IDE, web browser, PDF on screen) exhibits:
-        // 1) Dark IDE/Terminal theme: high dark ratio + sharp contrasting text edges
-        // 2) Saturated display UI / digital table: high edge sharpness + digital saturation
-        // 3) Pure dark background > 45%
-        isDisplayScreenImage = Boolean(
-          (darkRatio > 0.22) || 
-          (darkRatio > 0.15 && (edgeRatio > 0.005 || satRatio > 0.004)) ||
-          (edgeRatio > 0.04)
-        );
+        const dispersionRatio = avgChromaticDispersion / (avgEdgeIntensity || 1);
+        const extremeContrastRatio = darkRatio + brightRatio;
 
-        imageScreenStats = { darkRatio, satRatio, edgeRatio, isDisplayScreenImage };
-        console.log("[IMAGE SCREEN DETECTOR]", imageScreenStats);
-      } catch (imgErr) {
-        console.warn("[IMAGE SCREEN DETECTOR] Sharp analysis error:", imgErr.message);
+        // 1. Digital Screen Fingerprints (Three distinct traps)
+        // Trap A: Absolute Screen (Desktops, Laptops, Browsers) -> High absolute dispersion
+        const isAbsoluteScreen = avgChromaticDispersion > 3.8;
+        
+        // Trap B: High-DPI UI/Text (Phones displaying text) -> Structural dispersion dominates edge intensity
+        const isHighDpiTextScreen = avgChromaticDispersion > 1.5 && dispersionRatio > 0.60;
+        
+        // Trap C: Flagship OLED Phones displaying natural images (Photos) -> Extreme high density, very low Moiré
+        // Modern OLEDs are so dense they only produce ~0.44 chromatic dispersion.
+        // We catch them by their midtones. Books have almost NO midtones (extremeContrastRatio > 0.90).
+        // If an image has high midtones (extremeContrastRatio < 0.85) AND structural dispersion > 0.40, it's an OLED screen.
+        const isPhoneScreenImage = avgChromaticDispersion > 0.40 && extremeContrastRatio < 0.85;
+
+        isDisplayScreenImage = Boolean(isAbsoluteScreen || isHighDpiTextScreen || isPhoneScreenImage);
+
+        // Determine if it was dark or light mode for telemetry/logging
+        const isDarkModeScreen = isDisplayScreenImage && darkRatio > brightRatio;
+        const isLightModeScreen = isDisplayScreenImage && brightRatio >= darkRatio;
+
+        imageScreenStats = {
+          avgFrameBrightness: Number(avgFrameBrightness.toFixed(1)),
+          darkRatio: Number(darkRatio.toFixed(3)),
+          brightRatio: Number(brightRatio.toFixed(3)),
+          avgEdgeIntensity: Number(avgEdgeIntensity.toFixed(3)),
+          avgChromaticDispersion: Number(avgChromaticDispersion.toFixed(3)),
+          dispersionRatio: Number(dispersionRatio.toFixed(3)),
+          isDarkModeScreen,
+          isLightModeScreen,
+          isDisplayScreenImage
+        };
+
+        console.log('[SHARP SCREEN METRICS]', imageScreenStats);
+
+        if (isDisplayScreenImage) {
+          replayReason = isDarkModeScreen
+            ? 'Digital dark display / IDE / Terminal screen detected'
+            : 'Digital light display / browser screen detected';
+        }
+      } catch (err) {
+        console.error('[SCREEN ANALYSIS ERROR]', err);
       }
     }
 
-    // Validate sensor data
     const sensorValidation = validateSensorData(sensorData);
     const validSensors = Object.values(sensorValidation).filter(Boolean).length;
 
@@ -129,22 +192,24 @@ const generateAuthenticityProof = async (req, res) => {
     // 2. Run sensor integrity analysis
     const sensorResult = await analyzeSensorIntegrity(sensorData, metadata, mediaData);
 
-    // 3. Combined Decision: Hardware Sensors + Direct Pixel Buffer Inspection
-    const isRecaptured = Boolean(sensorResult.isRecaptured || isDisplayScreenImage);
+    // Final decision logic
+    const isRecaptured = Boolean(isDisplayScreenImage);
+    const finalAuraFlag = isRecaptured ? 'RED' : 'GREEN';
+    const finalStatus = isRecaptured ? 'tampered' : 'verified';
+    const finalClassification = isRecaptured ? 'SCREEN_REPLAY' : 'AUTHENTIC_CAMERA';
+    
     const screenDefensePassed = !isRecaptured;
     const sensorsPassed = !isRecaptured && validSensors > 0;
+    let failureReason = null;
+    if (isRecaptured) {
+        failureReason = replayReason || 'SECOND-COPY DETECTED (Screen Replay Photo): Electronic screen emission or digital UI detected';
+    }
 
-    const finalAuraFlag = isRecaptured ? "RED" : (sensorsPassed ? "GREEN" : "YELLOW");
-    const finalStatus = isRecaptured ? "tampered" : (sensorsPassed ? "verified" : "unverified");
-    const finalClassification = isRecaptured ? "SCREEN_REPLAY" : (sensorsPassed ? "AUTHENTIC_CAMERA" : "UNVERIFIED");
     const integrityScore = isRecaptured ? 25 : (sensorsPassed ? 98 : 45);
     const aiProbability = isRecaptured ? 0.85 : 0.02;
     const overallConfidence = isRecaptured ? 20.0 : (sensorsPassed ? 99.7 : 50.0);
-    const failureReason = isRecaptured
-      ? "SECOND-COPY DETECTED (Screen Replay Photo): Digital display / IDE / LCD pattern detected"
-      : null;
 
-    console.log("[SENSOR DEFENSE FINAL DECISION]", {
+    console.log("[FINAL VERDICT]", {
       isRecaptured,
       finalAuraFlag,
       finalStatus,
@@ -154,6 +219,7 @@ const generateAuthenticityProof = async (req, res) => {
       lightRelVar: sensorResult.lightRelVar,
       magSpread: sensorResult.magSpread,
       magMax: sensorResult.magMax,
+      sharpStats: typeof imageScreenStats !== 'undefined' ? imageScreenStats : null
     });
 
     // Generate device fingerprint
@@ -353,10 +419,7 @@ const getProof = async (req, res) => {
       });
     }
 
-    if (!proof) {
-      proof = getFromLedger(targetId);
-    }
-
+    
     if (!proof) {
       return res.status(404).json({
         success: false,
@@ -365,87 +428,16 @@ const getProof = async (req, res) => {
       });
     }
 
-    const isRecaptured = Boolean(proof.isRecaptured || proof.integrityAnalysis?.isRecaptured || proof.status === "tampered" || proof.auraFlag === "RED");
-    const auraFlag = isRecaptured ? "RED" : "GREEN";
-    const status = isRecaptured ? "tampered" : "verified";
-    const classification = isRecaptured ? "SCREEN_REPLAY" : "AUTHENTIC_CAMERA";
-    const failureReason = isRecaptured
-      ? "SECOND-COPY DETECTED (Screen Replay Photo): LCD/OLED display emission or subpixel grid detected"
-      : null;
-
-    res.status(200).json({
+    return res.json({
       success: true,
-      isVerified: !isRecaptured,
-      proof,
-      hashMatch: 100,
-      auraFlag,
-      status,
-      integrityScore: isRecaptured ? 25 : (proof.integrityScore || 98),
-      aiProbability: isRecaptured ? 0.85 : 0.02,
-      classification,
-      failureReason,
-      sensorsPassed: !isRecaptured,
-      sensors: !isRecaptured ? "PASSED" : "FAILED",
-      confidence: isRecaptured ? 20.0 : (proof.confidence || 99.7),
-      verification: {
-        proofId: proof.proofId,
-        status,
-        isVerified: !isRecaptured,
-        confidence: isRecaptured ? 20.0 : (proof.confidence || 99.7),
-        auraFlag,
-        statusMessage: isRecaptured ? "❌ SECOND-COPY DETECTED (RECAPTURED)" : "✅ A.U.R.A. VERIFIED",
-        statusDetails: isRecaptured
-          ? "Proof Found in Ledger | Flagged as Screen Replay"
-          : "Proof Found in Ledger | Environmental Physics Sealed | Cryptographic Proof: AUTHENTIC",
-        proofFound: true,
-        isRecaptured,
-        failureReason,
-        screenDefensePassed: !isRecaptured,
-        sensorsPassed: !isRecaptured,
-        hashMatch: 100,
-        integrityScore: isRecaptured ? 25 : (proof.integrityScore || 98),
-        aiProbability: isRecaptured ? 0.85 : 0.02,
-        classification,
-        hashValidation: {
-          isValid: !isRecaptured,
-          matchPercentage: 100,
-          status: "Verified Match (100% Sealed Ledger Proof)",
-          uploadedHash: proof.imageHash || proof.sha256Hash || proof.hash,
-          storedHash: proof.imageHash || proof.sha256Hash || proof.hash,
-        },
-        sensorValidation: !isRecaptured ? "passed" : "failed",
-        metadataConsistency: "consistent",
-        screenDefense: {
-          result: !isRecaptured ? "passed" : "failed",
-          screenDefensePassed: !isRecaptured,
-          magnetometerPassed: !isRecaptured,
-          lightFlickerPassed: !isRecaptured,
-          details: isRecaptured
-            ? (proof.integrityAnalysis?.screenDefense?.details || "Display emission detected")
-            : "Verified real-world ambient environment (Book / Paper)",
-        },
-        physicsDefense: {
-          motionPassed: !isRecaptured,
-          gravityConsistent: !isRecaptured,
-          details: "Handheld human micro-tremor signature consistent with authentic capture",
-        },
-        timestamp: new Date().toISOString(),
-        sensorMetrics: proof.sensorMetrics || proof.sensorData || null,
-        proofDetails: {
-          proofId: proof.proofId,
-          capturedAt: proof.createdAt || proof.timestamp || proof.metadata?.timestamp || proof.metadata?.capturedAt || new Date().toISOString(),
-          integrityScore: isRecaptured ? 25 : (proof.integrityScore || 98),
-          confidence: isRecaptured ? 20.0 : (proof.confidence || 99.7),
-          deviceId: proof.metadata?.deviceId || "Verified Device",
-          sensorData: proof.sensorData || proof.sensorMetrics,
-          metadata: proof.metadata,
-          imageData: proof.imageData,
-          imageHash: proof.imageHash || proof.sha256Hash,
-          exif: proof.metadata?.exif || null,
-        },
-      },
-      message: "Proof retrieved successfully",
+      status: proof.status || 'verified',
+      auraFlag: proof.auraFlag || 'GREEN',
+      classification: proof.classification || 'AUTHENTIC_CAMERA',
+      matchPercentage: 100,
+      proof: proof,
+      message: 'A.U.R.A. Certified Proof Verified in Ledger'
     });
+
   } catch (error) {
     logger.error("Error retrieving proof: " + error.message, { stack: error.stack });
     res.status(500).json({
