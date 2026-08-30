@@ -127,18 +127,21 @@ const generateAuthenticityProof = async (req, res) => {
 
         // 1. Digital Screen Fingerprints (Three distinct traps)
         // Trap A: Absolute Screen (Desktops, Laptops, Browsers) -> High absolute dispersion
-        const isAbsoluteScreen = avgChromaticDispersion > 6.0;
+        const isAbsoluteScreen = avgChromaticDispersion > 4.0;
 
         // Trap B: High-DPI UI/Text (Phones displaying text) -> Structural dispersion dominates edge intensity
-        const isHighDpiTextScreen = avgChromaticDispersion > 3.5 && dispersionRatio > 0.85;
+        const isHighDpiTextScreen = avgChromaticDispersion > 2.2 && dispersionRatio > 1.1;
 
         // Trap C: Flagship OLED Phones displaying natural images (Photos) -> Extreme high density, very low Moiré
         // Modern OLEDs are so dense they only produce ~0.44 chromatic dispersion.
         // We catch them by their midtones. Books have almost NO midtones (extremeContrastRatio > 0.90).
         // If an image has high midtones (extremeContrastRatio < 0.75) AND structural dispersion > 0.80, it's an OLED screen.
-        const isPhoneScreenImage = avgChromaticDispersion > 2.0 && extremeContrastRatio < 0.60;
+        const isPhoneScreenImage = avgChromaticDispersion > 1.8 && extremeContrastRatio < 0.75;
 
-        isDisplayScreenImage = Boolean(isAbsoluteScreen || isHighDpiTextScreen || isPhoneScreenImage);
+        // Trap D: Terminal / Dark IDE Screens (auto-exposed)
+        const isDarkTerminal = darkRatio > 0.65 && dispersionRatio > 0.9 && avgChromaticDispersion > 1.2;
+
+        isDisplayScreenImage = Boolean(isAbsoluteScreen || isHighDpiTextScreen || isPhoneScreenImage || isDarkTerminal);
 
         // Determine if it was dark or light mode for telemetry/logging
         const isDarkModeScreen = isDisplayScreenImage && darkRatio > brightRatio;
