@@ -37,10 +37,16 @@ const ProofSchema = new mongoose.Schema(
       required: true,
       unique: true,
       index: true,
+      uppercase: true,
+      trim: true,
     },
     hash: {
       type: String,
       required: true,
+      index: true,
+    },
+    sha256Hash: {
+      type: String,
       index: true,
     },
     imageHash: {
@@ -54,6 +60,12 @@ const ProofSchema = new mongoose.Schema(
       light: [LightReadingSchema],
       location: LocationSchema,
       timestamp: TimestampSchema,
+    },
+    sensorMetrics: {
+      type: mongoose.Schema.Types.Mixed,
+    },
+    spatiotemporalData: {
+      type: mongoose.Schema.Types.Mixed,
     },
     metadata: {
       type: mongoose.Schema.Types.Mixed,
@@ -72,8 +84,19 @@ const ProofSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['authentic', 'tampered', 'unverified'],
-      default: 'unverified',
+      default: 'authentic',
+    },
+    auraFlag: {
+      type: String,
+      default: 'GREEN',
+    },
+    isRecaptured: {
+      type: Boolean,
+      default: false,
+    },
+    screenDefensePassed: {
+      type: Boolean,
+      default: true,
     },
     verificationCount: {
       type: Number,
@@ -83,7 +106,7 @@ const ProofSchema = new mongoose.Schema(
       type: String, // Base64 string of the watermarked image
     },
   },
-  { timestamps: true }
+  { timestamps: true, strict: false }
 );
 
 module.exports = mongoose.model('Proof', ProofSchema);

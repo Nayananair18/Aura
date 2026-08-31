@@ -4,11 +4,12 @@ const {
   validateGenerateProof,
   validateVerifyMedia,
   validateAnalyzeMetadata,
+  validateDecodeQr,
   handleValidationErrors,
 } = require('../middleware/validation');
 const { proofLimiter, verifyLimiter, mlLimiter } = require('../middleware/rateLimiter');
-const { generateAuthenticityProof } = require('../controllers/proof');
-const { verifyMedia, analyzeMetadata } = require('../controllers/verify');
+const { generateAuthenticityProof, getProof } = require('../controllers/proof');
+const { verifyMedia, verifyByProofId, decodeQrCode, analyzeMetadata } = require('../controllers/verify');
 
 /**
  * POST /api/media/generate-proof
@@ -35,9 +36,39 @@ router.post(
 );
 
 /**
+ * POST /api/media/decode-qr & /api/media/scan-qr
+ */
+router.post(
+  '/decode-qr',
+  mlLimiter,
+  validateDecodeQr,
+  handleValidationErrors,
+  decodeQrCode
+);
+
+router.post(
+  '/scan-qr',
+  mlLimiter,
+  validateDecodeQr,
+  handleValidationErrors,
+  decodeQrCode
+);
+
+/**
+ * GET /api/media/proof/:proofId & GET /api/media/verify/:proofId
+ */
+router.get(
+  '/proof/:proofId',
+  getProof
+);
+
+router.get(
+  '/verify/:proofId',
+  verifyByProofId
+);
+
+/**
  * POST /api/media/analyze-metadata
- * ML-powered KNN metadata analysis: AI-generated vs real camera
- * Body limit is controlled globally via MAX_REQUEST_SIZE env var (default 20mb).
  */
 router.post(
   '/analyze-metadata',
