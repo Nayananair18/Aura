@@ -1,8 +1,10 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
+
 // Local storage directory for captured photos
 const CAPTURE_DIRECTORY = `${FileSystem.documentDirectory}RealityProof/`;
 
@@ -65,23 +67,28 @@ export const listCapturedPhotos = async () => {
     await initializeStorage();
     const files = await FileSystem.readDirectoryAsync(CAPTURE_DIRECTORY);
     
-    const photos = [];
-    for (const file of files) {
-      if (file.endsWith('.jpg') || file.endsWith('.png')) {
-        const fileUri = `${CAPTURE_DIRECTORY}${file}`;
-        const fileInfo = await FileSystem.getInfoAsync(fileUri);
-        photos.push({
-          uri: fileUri,
-          name: file,
-          size: fileInfo.size,
-          mimeType: file.endsWith('.jpg') ? 'image/jpeg' : 'image/png',
-        });
-      }
-    }
+    // Filter for image files
+    const imageFiles = files.filter(file => file.endsWith('.jpg') || file.endsWith('.png'));
     
-    return photos;
+    const photoList = [];
+    for (const file of imageFiles) {
+      const fileUri = `${CAPTURE_DIRECTORY}${file}`;
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      
+      photoList.push({
+        name: file,
+        uri: fileUri,
+        size: fileInfo.size,
+        modificationTime: fileInfo.modificationTime,
+      });
+    }
+
+    // Sort by modification time (newest first)
+    photoList.sort((a, b) => (b.modificationTime || 0) - (a.modificationTime || 0));
+
+    return photoList;
   } catch (error) {
-    console.error('Error listing captured photos:', error);
+    console.error('Error listing photos:', error);
     return [];
   }
 };
@@ -100,7 +107,7 @@ export const deleteCapturedPhoto = async (photoUri) => {
 };
 
 /**
- * Save photo metadata locally
+ * Save photo metadata alongside the photo
  */
 export const savePhotoMetadata = async (photoData) => {
   try {
@@ -199,6 +206,63 @@ export const pickFile = async () => {
 };
 
 /**
+ * Pick an image from photo library / gallery with base64 and dimension support
+ */
+export const pickImageFromGallery = async () => {
+  try {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('[AURA Gallery] Media library permission not explicitly granted, attempting picker...');
+      }
+    } catch (permErr) {
+      console.warn('[AURA Gallery] Media library permission error:', permErr.message);
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      return null;
+    }
+
+    const asset = result.assets[0];
+    let base64 = asset.base64;
+    if (!base64 && asset.uri) {
+      base64 = await getFileAsBase64(asset.uri);
+    }
+
+    return {
+      uri: asset.uri,
+      name: asset.fileName || `gallery_qr_${Date.now()}.jpg`,
+      size: asset.fileSize || 0,
+      mimeType: asset.mimeType || 'image/jpeg',
+      width: asset.width,
+      height: asset.height,
+      base64,
+    };
+  } catch (error) {
+    console.error('Error picking image from gallery:', error);
+    // Fallback to DocumentPicker
+    try {
+      const docResult = await pickFile();
+      if (!docResult) return null;
+      const base64 = await getFileAsBase64(docResult.uri);
+      return {
+        ...docResult,
+        base64,
+      };
+    } catch (fallbackErr) {
+      throw error;
+    }
+  }
+};
+
+/**
  * Get file contents as base64
  */
 export const getFileAsBase64 = async (fileUri) => {
@@ -283,7 +347,7 @@ export const saveFile = async (fileUri, fileName) => {
 export const saveToPhoneGallery = async (imageUri) => {
   try {
     if (Platform.OS === 'web') {
-      console.log('[AURA Gallery] Web platform — gallery save not supported via MediaLibrary.');
+      console.log('[AURA Gallery] Web platform – gallery save not supported via MediaLibrary.');
       return { success: false, message: 'MediaLibrary gallery save is not supported on web' };
     }
 
@@ -291,7 +355,6 @@ export const saveToPhoneGallery = async (imageUri) => {
       return { success: false, message: 'No image URI provided' };
     }
 
-    // 1. Request write-only permissions (prevents requesting unused AUDIO permissions on Android)
     let permStatus = 'denied';
     try {
       const perm = await MediaLibrary.requestPermissionsAsync(true);
@@ -302,7 +365,7 @@ export const saveToPhoneGallery = async (imageUri) => {
         const getPerm = await MediaLibrary.getPermissionsAsync(true);
         permStatus = getPerm.status;
       } catch (gErr) {
-        permStatus = 'granted'; // Fallback for save-only mode
+        permStatus = 'granted';
       }
     }
 
@@ -313,7 +376,6 @@ export const saveToPhoneGallery = async (imageUri) => {
 
     let targetUri = imageUri;
 
-    // Handle base64 data URIs by saving to temp file first
     if (imageUri.startsWith('data:image')) {
       const tempPath = `${FileSystem.cacheDirectory}aura_verified_${Date.now()}.jpg`;
       const base64Data = imageUri.split(',')[1] || imageUri;
@@ -321,11 +383,9 @@ export const saveToPhoneGallery = async (imageUri) => {
       targetUri = tempPath;
     }
 
-    // 2. Create asset in system media store with Expo Go graceful fallback
     try {
       const asset = await MediaLibrary.createAssetAsync(targetUri);
       
-      // Try organizing into "AURA Verified" album (works in development builds & standalone APKs)
       try {
         const albumName = 'AURA Verified';
         const existingAlbum = await MediaLibrary.getAlbumAsync(albumName);
@@ -353,7 +413,6 @@ export const saveToPhoneGallery = async (imageUri) => {
       }
     } catch (createErr) {
       console.warn('[AURA Gallery] Asset creation fallback to saveToLibraryAsync:', createErr.message);
-      // Fallback: saveToLibraryAsync works in Expo Go without full album permissions
       await MediaLibrary.saveToLibraryAsync(targetUri);
       console.log('[AURA Gallery] ✅ Photo saved to your device Photos gallery via saveToLibraryAsync!');
       return {
@@ -373,6 +432,7 @@ export const saveToPhoneGallery = async (imageUri) => {
 
 export default {
   pickFile,
+  pickImageFromGallery,
   getFileAsBase64,
   hashFile,
   getFileInfo,

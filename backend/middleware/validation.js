@@ -5,28 +5,21 @@ const { body, validationResult } = require('express-validator');
  */
 const validateGenerateProof = [
   body('mediaData').optional(),
-  body('sensorData').isObject().withMessage('Sensor data is required'),
-  body('sensorData.accelerometer').isArray().optional(),
-  body('sensorData.gyroscope').isArray().optional(),
-  body('sensorData.magnetometer').isArray().optional(),
-  body('sensorData.light').isArray().optional(),
-  body('sensorData.location').isObject().optional(),
-  body('sensorData.timestamp').isObject().optional(),
-  body('metadata').isObject().withMessage('Metadata is required'),
-  body('metadata.deviceId').notEmpty().withMessage('Device ID is required'),
-  body('metadata.timestamp').notEmpty().withMessage('Timestamp is required'),
+  body('sensorData').optional(),
+  body('telemetry').optional(),
+  body('metadata').optional(),
 ];
 
 /**
  * Validate verify media request
+ * Supports both Proof ID lookup and direct media hash/image upload verification
  */
 const validateVerifyMedia = [
-  // fileHash is optional — the frontend sends null when verifying an image
-  // that was not previously registered (gallery upload path).
+  body('proofId').optional({ nullable: true }).isString().trim(),
   body('fileHash').optional({ nullable: true }),
-  body('metadata').isObject().withMessage('Metadata is required'),
-  body('metadata.fileName').notEmpty().withMessage('File name is required'),
-  body('uploadedMediaHash').notEmpty().withMessage('Uploaded media hash is required'),
+  body('uploadedMediaHash').optional({ nullable: true }),
+  body('metadata').optional({ nullable: true }).isObject().withMessage('Metadata must be an object'),
+  body('metadata.fileName').optional({ nullable: true }),
 ];
 
 /**
@@ -42,11 +35,18 @@ const validateStoreResult = [
  * Validate ML metadata analysis request
  */
 const validateAnalyzeMetadata = [
+  body('image').optional(),
+  body('fileName').optional().isString().trim(),
+  body('fileType').optional().isString().trim(),
+];
+
+/**
+ * Validate decode QR request
+ */
+const validateDecodeQr = [
   body('image')
     .notEmpty().withMessage('image is required')
     .isString().withMessage('image must be a base64 string'),
-  body('fileName').optional().isString().trim(),
-  body('fileType').optional().isString().trim(),
 ];
 
 /**
@@ -68,5 +68,6 @@ module.exports = {
   validateVerifyMedia,
   validateStoreResult,
   validateAnalyzeMetadata,
+  validateDecodeQr,
   handleValidationErrors,
 };

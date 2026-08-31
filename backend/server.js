@@ -12,6 +12,24 @@ const config = require('./config/config');
 const logger = require('./utils/logger');
 const { globalLimiter } = require('./middleware/rateLimiter');
 
+const PORT = config.port || 3001;
+
+// ==================== PROCESS ERROR GUARDS ====================
+
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled Rejection: ${reason?.stack || reason?.message || reason}`);
+});
+
+process.on('uncaughtException', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${PORT} is already in use by another running process.`);
+    logger.info(`If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
+  } else {
+    logger.error(`Uncaught Exception: ${error.stack || error.message || error}`);
+  }
+  process.exit(1);
+});
+
 // Ensure logs/ directory exists (required by Winston file transports in production)
 const logsDir = path.join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) {
@@ -29,10 +47,10 @@ const app = express();
 const connectDatabase = async () => {
   try {
     await mongoose.connect(config.mongodbUri);
-    logger.info('✅ MongoDB connected successfully');
+    logger.info('MongoDB connected successfully');
     logger.info(`Database: ${config.mongodbUri}`);
   } catch (error) {
-    logger.error(`❌ MongoDB connection failed: ${error.message}`);
+    logger.error(`MongoDB connection failed: ${error.message}`);
     logger.warn('Running without database persistence (mock API mode)');
   }
 };
@@ -45,19 +63,19 @@ app.use(compression());
 // Security headers
 app.use(helmet());
 
-// CORS — credentials:true requires an explicit allowed origin list (never '*')
+// CORS
 app.use(cors({
   origin: config.debug ? config.corsOrigin : config.corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: !config.debug, // credentials only when we have explicit origins
+  credentials: !config.debug,
   optionsSuccessStatus: 200,
 }));
 
-// Body parsing — 10mb max to cover base64 images from mobile without OOM risk
+// Body parsing
 app.use(bodyParser.json({ limit: config.maxRequestSize }));
 app.use(bodyParser.urlencoded({ limit: config.maxRequestSize, extended: true }));
 
-// HTTP request logging (single logger using morgan + winston stream)
+// HTTP request logging
 app.use(morgan(config.debug ? 'dev' : 'combined', { stream: logger.stream }));
 
 // Global rate limiter
@@ -67,6 +85,7 @@ app.use('/api', globalLimiter);
 
 app.use('/api/media', mediaRoutes);
 app.use('/api/verification', verificationRoutes);
+app.use('/api/verify', verificationRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -89,6 +108,7 @@ app.get('/api', (req, res) => {
       ping: 'GET /api/ping',
       generateProof: 'POST /api/media/generate-proof',
       verifyMedia: 'POST /api/media/verify',
+      scanQr: 'POST /api/verify/scan-qr (or POST /api/media/decode-qr)',
       analyzeMetadata: 'POST /api/media/analyze-metadata',
       storeResult: 'POST /api/verification/store',
       getHistory: 'GET /api/verification/history',
@@ -138,14 +158,11 @@ app.use((err, req, res, next) => {
   res.status(status).json({
     success: false,
     message,
-    // Only expose error details in development
     error: config.debug ? { message: err.message, stack: err.stack } : undefined,
   });
 });
 
 // ==================== SERVER START ====================
-
-const PORT = config.port;
 
 const getLocalIP = () => {
   const interfaces = os.networkInterfaces();
@@ -167,14 +184,25 @@ const startServer = async () => {
   const localIP = getLocalIP();
   server = app.listen(PORT, '0.0.0.0', () => {
     logger.info('');
-    logger.info('╔════════════════════════════════════════════╗');
-    logger.info('║      🛡️  A.U.R.A. Backend Server          ║');
-    logger.info('╚════════════════════════════════════════════╝');
-    logger.info(`✅ Server running on LAN: http://${localIP}:${PORT}`);
-    logger.info(`🏠 Local address: http://localhost:${PORT}`);
-    logger.info(`📝 API Documentation: http://${localIP}:${PORT}/api`);
-    logger.info(`🌍 Environment: ${config.nodeEnv}`);
-    logger.info(`🛡️  A.U.R.A. Defense Engine: ACTIVE`);
+    logger.info('+--------------------------------------------+');
+    logger.info('|        A.U.R.A. Backend Server             |');
+    logger.info('+--------------------------------------------+');
+    logger.info(`Server running on LAN: http://${localIP}:${PORT}`);
+    logger.info(`Local address: http://localhost:${PORT}`);
+    logger.info(`API Documentation: http://${localIP}:${PORT}/api`);
+    logger.info(`Environment: ${config.nodeEnv}`);
+    logger.info(`A.U.R.A. Defense Engine: ACTIVE`);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(`Port ${PORT} is already in use by another running process.`);
+      logger.info(`If nodemon or 'npm run dev' is already active in another terminal, your backend is already running on http://localhost:${PORT}`);
+      process.exit(1);
+    } else {
+      logger.error(`Server Error: ${error.message}`, { stack: error.stack });
+      process.exit(1);
+    }
   });
 };
 
@@ -194,7 +222,6 @@ const shutdown = (signal) => {
       process.exit(0);
     });
 
-    // Force shutdown after 10 seconds
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);
@@ -206,17 +233,6 @@ const shutdown = (signal) => {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
-
-// ==================== PROCESS ERROR GUARDS ====================
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
-});
-
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception — shutting down', { error });
-  process.exit(1);
-});
 
 startServer();
 
