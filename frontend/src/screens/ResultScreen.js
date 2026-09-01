@@ -9,7 +9,7 @@ import { QrCode } from '../components/QrCode';
 import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
 
-// ─── Sub-components & Helpers ───
+// ── Sub-components & Helpers ──
 
 const getStyles = (theme) => {
   const { colors, spacing, typography } = theme;
@@ -22,62 +22,6 @@ const getStyles = (theme) => {
     content: {
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.xxxl,
-    },
-
-    // Second-Copy Replay Warning Banner
-    recapturedWarningBanner: {
-      backgroundColor: 'rgba(239, 68, 68, 0.15)',
-      borderColor: colors.error || '#EF4444',
-      borderWidth: 2,
-      borderRadius: 14,
-      padding: spacing.md,
-      marginBottom: spacing.md,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    recapturedWarningIcon: {
-      fontSize: 26,
-    },
-    recapturedWarningTitle: {
-      ...typography.callout,
-      fontWeight: '800',
-      color: colors.error || '#EF4444',
-      letterSpacing: 0.5,
-    },
-    recapturedWarningDesc: {
-      ...typography.footnote,
-      color: colors.textSecondary,
-      marginTop: 2,
-      lineHeight: 18,
-    },
-
-    // Unverified External Upload Banner
-    unverifiedWarningBanner: {
-      backgroundColor: 'rgba(245, 158, 11, 0.15)',
-      borderColor: '#F59E0B',
-      borderWidth: 2,
-      borderRadius: 14,
-      padding: spacing.md,
-      marginBottom: spacing.md,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    unverifiedWarningIcon: {
-      fontSize: 26,
-    },
-    unverifiedWarningTitle: {
-      ...typography.callout,
-      fontWeight: '800',
-      color: '#F59E0B',
-      letterSpacing: 0.5,
-    },
-    unverifiedWarningDesc: {
-      ...typography.footnote,
-      color: colors.textSecondary,
-      marginTop: 2,
-      lineHeight: 18,
     },
 
     // Status
@@ -255,14 +199,14 @@ const getStyles = (theme) => {
 };
 
 const DefenseRow = ({ label, status, details, theme }) => {
-  const { colors } = theme;
+  const { colors, spacing, typography } = theme;
   const styles = getStyles(theme);
   return (
     <View style={styles.defenseRow}>
       <View style={styles.defenseHeader}>
-        <View style={[styles.validationDot, { backgroundColor: status ? (colors.authentic || '#00FF9D') : (colors.error || '#EF4444') }]} />
+        <View style={[styles.validationDot, { backgroundColor: status ? colors.authentic : colors.error }]} />
         <Text style={styles.validationLabel}>{label}</Text>
-        <Text style={[styles.validationStatus, { color: status ? (colors.authentic || '#00FF9D') : (colors.error || '#EF4444') }]}>
+        <Text style={[styles.validationStatus, { color: status ? colors.authentic : colors.error }]}>
           {status ? 'PASSED' : 'FAILED'}
         </Text>
       </View>
@@ -279,7 +223,7 @@ const renderSensorAnalysis = (sensorData, theme) => {
     : [];
 
   const lightPoints = Array.isArray(sensorData.light)
-    ? sensorData.light.map(r => (r && typeof r === 'object' && r.lux != null ? Number(r.lux) : Number(r) || 0)).filter(Number.isFinite)
+    ? sensorData.light.map(r => (r && typeof r === 'object' && r.lux != null ? Number(r.lux) || 0 : Number(r) || 0)).filter(Number.isFinite)
     : [];
 
   if (accelPoints.length < 2 && lightPoints.length < 2) return null;
@@ -322,7 +266,7 @@ const renderSensorAnalysis = (sensorData, theme) => {
 export const ResultScreen = ({ route, navigation, theme }) => {
   const params = route?.params || {};
   const {
-    status = 'verified',
+    status = 'authentic',
     verification = {},
     proof = {},
     sensorData = null,
@@ -333,81 +277,70 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     mlAnalysis = null,
   } = params;
 
+    // Differentiate between "Capture Mode" (brand new baseline) and "Verification Mode"
   const isCaptureMode = Boolean(params.isCaptureMode === true || verification.isCaptureMode === true);
+
+  // Resolve display filename
   const displayFileName = fileName || photoData?.name || metadata?.fileName || 'photo_capture.jpg';
+
+  // Physical evidence fingerprint — from mlAnalysis.metadataFingerprint, proof.exif, or metadata
   const physicalFingerprint = mlAnalysis?.metadataFingerprint || proof?.exif || metadata?.exif || null;
 
-  const hashValidation = verification.hashValidation || {};
-  const rawHashMatch = params.matchPercentage ?? params.hashMatch ?? verification.hashMatch ?? hashValidation.matchPercentage;
-  const hashMatchNum = rawHashMatch != null ? Number(rawHashMatch) : (isCaptureMode ? 100 : (hashValidation.isValid ? 100 : 0));
-  const isHashMatch = isCaptureMode ? true : (hashMatchNum === 100 || Boolean(hashValidation.isValid));
-
-  // Replay check: ONLY true if explicitly flagged as screen replay by optical PWM flicker or extreme magnetic spike
-  const isRecaptured = Boolean(
-    params.isRecaptured === true ||
-    params.auraFlag === 'RED' ||
-    params.result?.auraFlag === 'RED' ||
-    params.result?.isRecaptured === true ||
-    status === 'tampered' ||
-    verification.isRecaptured === true ||
-    verification.auraFlag === 'RED' ||
-    verification.status === 'tampered' ||
-    verification.screenDefense?.isRecaptured === true ||
-    verification.screenDefense?.result === 'failed' ||
-    verification.screenDefensePassed === false ||
-    proof.isRecaptured === true ||
-    proof.auraFlag === 'RED' ||
-    proof.status === 'tampered'
+  const hasHardwareExif = Boolean(
+    physicalFingerprint && (
+      (physicalFingerprint.make && String(physicalFingerprint.make).trim() !== '') ||
+      (physicalFingerprint.model && String(physicalFingerprint.model).trim() !== '') ||
+      physicalFingerprint.shutterSpeed != null ||
+      physicalFingerprint.aperture != null ||
+      physicalFingerprint.focalLength != null
+    )
   );
 
-  // Sensor validation check
-  const sensorsPassed = !isRecaptured && 
-    params.sensorsPassed !== false && 
-    verification.sensorsPassed !== false && 
-    verification.sensorValidation !== 'failed' && 
-    verification.sensorValidationStatus !== 'failed';
+  const hashValidation = verification.hashValidation || {};
+  const isHashMatch = Boolean(hashValidation.isValid && (hashValidation.matchPercentage ?? 0) > 0);
+  const hashValid = isCaptureMode ? true : isHashMatch;
+  const aiProbability = mlAnalysis?.aiProbability ?? 0;
+  const screenPassed = verification.screenDefense?.result === 'passed' || 
+    (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
+  const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
 
-  const rawAuraFlag = params.auraFlag || verification.auraFlag || (status === 'verified' || status === 'authentic' ? 'GREEN' : null);
-  const isExternalUpload = Boolean(!isCaptureMode && !hashValidation.storedHash && (status === 'unverified' || rawAuraFlag === 'YELLOW'));
+  // Strict Decision Engine Rule: "No Physical Proof = Not Verified"
+  let evaluatedFlag = verification.auraFlag || 'GREEN';
 
-  // ─── Result Screen Banner Decision Engine ───
-  // 1. RED ("SECOND-COPY DETECTED (Screen Replay Photo)") ONLY when isRecaptured === true
-  // 2. GREEN ("A.U.R.A. Verified") whenever !isRecaptured AND (auraFlag === 'GREEN' OR (hashMatch === 100 && sensorsPassed === true))
-  // 3. YELLOW ("Unverified External Media") when auraFlag === 'YELLOW' OR isExternalUpload === true
-  let evaluatedFlag = 'GREEN';
-
-  if (isRecaptured) {
+  if (!isCaptureMode && !isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
     evaluatedFlag = 'RED';
-  } else if (rawAuraFlag === 'GREEN' || (hashMatchNum === 100 && sensorsPassed === true && !isRecaptured)) {
-    evaluatedFlag = 'GREEN';
-  } else if (rawAuraFlag === 'YELLOW' || isExternalUpload || status === 'unverified' || status === 'suspicious') {
+  } else if (!isCaptureMode && !isHashMatch) {
+    // Unregistered external upload without authentic ledger proof
+    evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
+  } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
+    evaluatedFlag = 'RED';
+  } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
+    // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
     evaluatedFlag = 'YELLOW';
-  } else if (rawAuraFlag === 'RED') {
-    evaluatedFlag = 'RED';
-  } else {
+  } else if (verification.auraFlag === 'GREEN' && screenPassed && physicsPassed && hasHardwareExif && aiProbability < 25 && hashValid) {
     evaluatedFlag = 'GREEN';
+  } else {
+    evaluatedFlag = 'YELLOW';
   }
 
   const isAuthentic = evaluatedFlag === 'GREEN';
   const isUncertain = evaluatedFlag === 'YELLOW';
   const isTampered = evaluatedFlag === 'RED';
 
-  const screenPassed = !isRecaptured && (verification.screenDefensePassed !== false && verification.screenDefense?.result !== 'failed');
-  const physicsPassed = isCaptureMode
-    ? Boolean(verification.physicsDefense?.motionPassed !== false)
-    : (isHashMatch ? Boolean(verification.physicsDefense?.motionPassed !== false) : false);
-
   const { colors } = theme;
   const styles = getStyles(theme);
 
-  const activeProofId = proof.proofId || proof.id || verification.proofId || 'AURA-VERIFIED';
+  const confidence = verification.confidence != null 
+    ? verification.confidence 
+    : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : 0.0));
+  const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
 
   const displayHashMatch = isCaptureMode
     ? '100% (Baseline Sealed)'
-    : (isHashMatch ? `${hashMatchNum}%` : '0% Match / Unregistered');
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0% Match / Unregistered');
   const statHashMatch = isCaptureMode
     ? '100%'
-    : (isHashMatch ? `${hashMatchNum}%` : '0%');
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0%');
 
   const handleSaveToGallery = async () => {
     if (!photoData?.uri) {
@@ -427,40 +360,35 @@ export const ResultScreen = ({ route, navigation, theme }) => {
       Alert.alert('Error', 'No image available to share');
       return;
     }
-
     try {
-      const shareUrl = `https://aura-app.com/verify/${activeProofId}`;
-      const message = `✨ AURA VERIFIED PHOTO\n\nProof ID: ${activeProofId}\nStatus: ${isAuthentic ? 'Authentic (Physics Verified)' : 'Unverified'}\nIntegrity Score: ${isAuthentic ? 98 : 0}%\nVerification URL: ${shareUrl}`;
-      
       await Share.share({
-        message,
+        title: 'A.U.R.A. Verified Image',
+        message: `🛡️ A.U.R.A. Verified Authentic Capture\nProof ID: ${activeProofId}\nVerify: https://aura-app.com/verify/${activeProofId}`,
         url: photoData.uri,
-        title: 'AURA Verified Photo',
       });
     } catch (err) {
-      console.warn('Share error:', err.message);
+      console.error('Error sharing image:', err.message);
     }
   };
 
+  // Status Badge visual configurations
   const badgeConfig = {
     GREEN: {
       icon: '✓',
       title: 'A.U.R.A. Verified',
-      subtitle: 'Environmental Physics Sealed / Cryptographic Proof Valid',
-      color: colors.authentic || '#00FF9D',
+      subtitle: 'Environmental Physics Sealed',
+      color: colors.authentic || '#22C55E',
     },
     YELLOW: {
-      icon: '⚠️',
-      title: 'Unverified External Media',
-      subtitle: 'No physical sensor telemetry sealed in ledger',
+      icon: '?',
+      title: 'Uncertain Authenticity',
+      subtitle: 'Missing physical proof or elevated synthetic signals',
       color: '#F59E0B',
     },
     RED: {
       icon: '✗',
-      title: isRecaptured ? 'SECOND-COPY DETECTED (Screen Replay Photo)' : 'Integrity Failure',
-      subtitle: isRecaptured 
-        ? 'Screen Replay Attack (Display Optical PWM / Magnetometer EMI)' 
-        : 'Physics violation or high AI generation probability',
+      title: 'Integrity Failure',
+      subtitle: 'Physics violation or high AI generation probability',
       color: colors.error || '#EF4444',
     },
   };
@@ -476,30 +404,6 @@ export const ResultScreen = ({ route, navigation, theme }) => {
       />
 
       <View style={styles.content}>
-        {/* Dedicated Warning Indicator: Second-Copy Screen Replay */}
-        {isRecaptured ? (
-          <View style={styles.recapturedWarningBanner}>
-            <Text style={styles.recapturedWarningIcon}>⚠️</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.recapturedWarningTitle}>SECOND-COPY DETECTED (Screen Replay Photo)</Text>
-              <Text style={styles.recapturedWarningDesc}>
-                {verification.screenDefense?.details || params.failureReason || verification.failureReason || 'Display emission detected: Optical PWM flicker, Magnetometer EMI, or LCD/OLED subpixel grid.'}
-              </Text>
-            </View>
-          </View>
-        ) : (!isCaptureMode && !isHashMatch) ? (
-          /* Dedicated Neutral Indicator: Unverified External Media */
-          <View style={styles.unverifiedWarningBanner}>
-            <Text style={styles.unverifiedWarningIcon}>ℹ️</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.unverifiedWarningTitle}>UNVERIFIED EXTERNAL MEDIA</Text>
-              <Text style={styles.unverifiedWarningDesc}>
-                No physical sensor telemetry sealed in ledger (External file upload).
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
         {/* Status Badge */}
         <View style={styles.statusBadge}>
           <View style={[styles.statusIconCircle, { backgroundColor: activeBadge.color }]}>
@@ -525,7 +429,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           </Card>
         )}
 
-        {/* Quick Stats */}
+                {/* Quick Stats */}
         <View style={styles.statsRow}>
           <Card theme={theme} style={styles.statCard}>
             <Text style={[styles.statValue, { color: isCaptureMode || isHashMatch ? colors.text : colors.error }]}>
@@ -534,8 +438,8 @@ export const ResultScreen = ({ route, navigation, theme }) => {
             <Text style={styles.statLabel}>Hash Match</Text>
           </Card>
           <Card theme={theme} style={styles.statCard}>
-            <Text style={[styles.statValue, { color: sensorsPassed ? (colors.authentic || '#00FF9D') : (colors.error || '#EF4444') }]}>
-              {sensorsPassed ? '✓' : '✗'}
+            <Text style={[styles.statValue, { color: (verification.sensorValidationStatus === 'passed' || verification.sensorValidation === 'passed') ? colors.authentic : colors.error }]}>
+              {(verification.sensorValidationStatus === 'passed' || verification.sensorValidation === 'passed') ? '✓' : '✗'}
             </Text>
             <Text style={styles.statLabel}>Sensors</Text>
           </Card>
@@ -551,10 +455,10 @@ export const ResultScreen = ({ route, navigation, theme }) => {
             value={displayHashMatch} 
             theme={theme} 
           />
-          <MetadataItem label="Metadata" value={verification.metadataConsistency || (isCaptureMode ? 'Consistent' : 'Consistent')} theme={theme} isLast />
+          <MetadataItem label="Metadata" value={verification.metadataConsistency || (isCaptureMode ? 'Consistent' : 'Unregistered')} theme={theme} isLast />
         </Card>
 
-        {/* SHA-256 Hash Card */}
+        {/* SHA-256 Hash Card with explicit vertical padding and margin */}
         {fileHash ? (
           <View style={styles.hashSection}>
             <SectionTitle title="SHA-256 HASH" theme={theme} />
@@ -564,7 +468,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           </View>
         ) : null}
 
-        {/* A.U.R.A. Defense Report */}
+        {/* A.U.R.A. Defense Report with clean section margin */}
         <View style={styles.sectionBlock}>
           <SectionTitle title="DEFENSE REPORT" theme={theme} />
           <Card theme={theme}>
@@ -572,9 +476,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
               label="Screen Attack Defense" 
               status={screenPassed} 
               details={
-                screenPassed 
-                  ? "No display signatures found (Ambient lighting & magnetic baseline verified)" 
-                  : "FAILED - Display optical PWM / EMI emission detected"
+                verification.screenDefense?.details || (screenPassed ? "No display signatures found (Ambient lighting & magnetic baseline verified)" : "Screen replay signature detected")
               }
               theme={theme} 
             />
@@ -590,81 +492,105 @@ export const ResultScreen = ({ route, navigation, theme }) => {
             <View style={styles.divider} />
             <DefenseRow 
               label="Spatiotemporal Seal" 
-              status={Boolean(verification.locationValid !== false && verification.timestampValid !== false)} 
+              status={Boolean(verification.locationValid && verification.timestampValid)} 
               details={
-                (verification.locationValid !== false && verification.timestampValid !== false)
-                  ? `Capture Time & Sensors Sealed (Cryptographic Ledger Proof)`
-                  : `Spatiotemporal seal unverified`
+                (verification.locationValid && verification.timestampValid)
+                  ? `Capture Duration: ${((verification.duration || 1000)/1000).toFixed(1)}s (Location & Time Sealed)`
+                  : `Spatiotemporal seal unverified${!verification.locationValid ? ' (Location missing)' : ''}${!verification.timestampValid ? ' (Timing inconsistent)' : ''}`
               }
               theme={theme} 
             />
           </Card>
         </View>
 
-        {/* ML Metadata Analysis */}
-        {mlAnalysis && (
-          <View style={styles.sectionBlock}>
-            <SectionTitle title="AI DETECTION ANALYSIS" theme={theme} />
-            <MLScoreCard analysis={mlAnalysis} theme={theme} />
-          </View>
+        {/* ML Metadata Analysis with clear top spacing */}
+        <View style={styles.sectionBlock}>
+          <SectionTitle title="ML METADATA ANALYSIS" theme={theme} />
+          <MLScoreCard
+            analysis={mlAnalysis}
+            isLoading={false}
+            theme={theme}
+          />
+        </View>
+
+        {/* Physical Evidence — EXIF Fingerprint */}
+        <SectionTitle title="PHYSICAL EVIDENCE" theme={theme} />
+        <EvidenceCard
+          fingerprint={physicalFingerprint}
+          theme={theme}
+        />
+
+        {/* Sensor Metrics */}
+        {verification.sensorStats && (
+          <>
+            <SectionTitle title="AVERAGE SENSOR METRICS" theme={theme} />
+            <Card theme={theme}>
+              <MetadataItem 
+                label="Magnetometer" 
+                value={`${verification.sensorStats.magnetometer?.avg?.toFixed(1) || 0}µT (±${verification.sensorStats.magnetometer?.spread?.toFixed(1) || 0})`} 
+                theme={theme} 
+              />
+              <MetadataItem 
+                label="Environment Light" 
+                value={`${verification.sensorStats.light?.avg?.toFixed(1) || 0} Lux (RelVar: ${verification.sensorStats.light?.relativeVariance?.toFixed(2) || 0})`} 
+                theme={theme} 
+              />
+              <MetadataItem 
+                label="Applied Physics" 
+                value={`${verification.sensorStats.accelerometer?.avg?.toFixed(2) || 0} G (Var: ${verification.sensorStats.accelerometer?.spread?.toFixed(4) || 0})`} 
+                theme={theme} 
+                isLast
+              />
+            </Card>
+          </>
         )}
 
-        {/* Physical Evidence Card */}
-        <View style={styles.sectionBlock}>
-          <SectionTitle title="PHYSICAL EVIDENCE" theme={theme} />
-          <EvidenceCard
-            sensorData={sensorData || proof.sensorData}
-            metadata={physicalFingerprint}
+        {/* Verification QR */}
+        <SectionTitle title="VERIFICATION PASS" theme={theme} />
+        <Card theme={theme} style={styles.qrCard}>
+          <QrCode
+            value={proof.hash || proof.id || 'AURA-NO-PROOF'}
             theme={theme}
           />
-        </View>
+          <Text style={styles.qrDesc}>Scan to verify this proof's SHA-256 hash</Text>
+        </Card>
 
-        {/* Sensor Graphs */}
-        {renderSensorAnalysis(sensorData || proof.sensorData, theme)}
+        {/* Validation Ledger */}
+        <SectionTitle title="VERIFICATION LEDGER" theme={theme} />
+        <Card theme={theme}>
+          <MetadataItem label="Proof ID" value={proof.id || '—'} theme={theme} />
+          <MetadataItem label="Block Hash" value={proof.hash ? proof.hash.slice(0, 16) + '...' : (fileHash ? fileHash.slice(0, 16) + '...' : '—')} theme={theme} />
+          <MetadataItem label="Sealing Status" value="COMMITTED" theme={theme} isLast />
+        </Card>
 
-        {/* QR Code Section */}
-        <View style={styles.sectionBlock}>
-          <SectionTitle title="PROOF ID & VERIFICATION QR" theme={theme} />
-          <Card theme={theme} style={styles.qrCard}>
-            <QrCode
-              data={`https://aura-app.com/verify/${activeProofId}`}
-              size={180}
-              theme={theme}
-            />
-            <Text style={styles.qrDesc}>
-              Scan to independently verify cryptographic proof on the AURA Ledger.
-            </Text>
-          </Card>
-        </View>
+        {/* Sensor Analysis Graphs */}
+        {renderSensorAnalysis(sensorData, theme)}
 
-        {/* Action Buttons */}
-        <View style={{ gap: theme.spacing.sm, marginTop: theme.spacing.lg }}>
-          {photoData?.uri && (
-            <Button
-              title="Save Verified Image to Gallery"
-              onPress={handleSaveToGallery}
-              variant="primary"
-              size="large"
-              theme={theme}
-            />
-          )}
-
-          <Button
-            title="Share Verification Proof"
-            onPress={handleShareVerifiedImage}
-            variant="secondary"
-            size="large"
-            theme={theme}
-          />
-
-          <Button
-            title="Back to Home"
-            onPress={() => navigation.navigate('Home')}
-            variant="outline"
-            size="large"
-            theme={theme}
-          />
-        </View>
+        {/* Actions */}
+        <Button
+          title="Save to AURA Verified"
+          onPress={handleSaveToGallery}
+          variant="primary"
+          size="large"
+          theme={theme}
+          style={{ marginTop: theme.spacing.md }}
+        />
+        <Button
+          title="Share Verified Image"
+          onPress={handleShareVerifiedImage}
+          variant="secondary"
+          size="large"
+          theme={theme}
+          style={{ marginTop: theme.spacing.xs }}
+        />
+        <Button
+          title="Back to Home"
+          onPress={() => navigation.navigate('Home')}
+          variant="ghost"
+          size="medium"
+          theme={theme}
+          style={{ marginTop: theme.spacing.xs }}
+        />
       </View>
     </ScrollView>
   );

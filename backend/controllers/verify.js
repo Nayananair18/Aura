@@ -1,14 +1,11 @@
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
-const sharp = require('sharp');
-const jsQR = require('jsqr');
 const VerificationResult = require('../models/VerificationResult');
 const Proof = require('../models/Proof');
-const { generateHash, compareHashes, calculateLightStats, calculateSensorStats } = require('../utils/crypto');
+const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
-const { getFromLedger, normalizeKey, listLedgerIds } = require('../utils/ledgerStore');
 
 /**
  * Check if MongoDB is connected and ready for writes
@@ -16,419 +13,164 @@ const { getFromLedger, normalizeKey, listLedgerIds } = require('../utils/ledgerS
 const isDbConnected = () => mongoose.connection.readyState === 1;
 
 /**
- * Helper to escape regex special characters
+ * Calculate Hamming distance between two hex strings.
+ * Returns a deterministic confidence score (0–100) based on
+ * how similar the hash characters are — NO Math.random().
  */
-const escapeRegex = (string) => {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-/**
- * Unified Proof ID Query Handler
- * GET /api/verify/proof/:proofId, GET /api/media/proof/:proofId, POST /api/verify/proof-id
- */
-const verifyByProofId = async (req, res) => {
-  try {
-    const rawProofId = req.params.proofId || req.body.proofId || req.query.proofId || '';
-
-    if (!rawProofId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Proof ID is required',
-      });
-    }
-
-    // Strip any hidden non-alphanumeric characters except standard hyphens
-    const sanitized = String(rawProofId).trim().toUpperCase().replace(/.*\/VERIFY\//i, '').replace(/.*\//, '').replace(/[^A-Z0-9-]/g, '');
-    const target = sanitized.startsWith('AURA-') ? sanitized : `AURA-${sanitized}`;
-    const idWithoutPrefix = sanitized.replace(/^AURA-/, '');
-    const escapedSanitized = escapeRegex(sanitized);
-    const escapedTarget = escapeRegex(target);
-
-    logger.info(`[PROOF LOOKUP] Querying Proof ID: ${sanitized} (target: ${target})`);
-
-    let foundProof = null;
-
-    if (isDbConnected()) {
-      try {
-        foundProof = await Proof.findOne({
-          $or: [
-            { proofId: sanitized },
-            { proofId: target },
-            { proofId: idWithoutPrefix },
-            { proofId: { $regex: new RegExp(`^${escapedSanitized}`, 'i') } },
-            { proofId: { $regex: new RegExp(`^${escapedTarget}`, 'i') } },
-          ],
-        });
-      } catch (dbErr) {
-        logger.error(`MongoDB query error: ${dbErr.message}`);
-      }
-    }
-
-    // Fallback to in-memory ledger
-    
-    if (!foundProof) {
-      if (isDbConnected()) {
-        try {
-          const availableProofs = await Proof.find({}, 'proofId');
-          console.log('Available Proofs in DB:', availableProofs.map((p) => p.proofId));
-        } catch (err) {
-          console.log('Error listing available proofs:', err.message);
-        }
-      }
-      console.log('Available Proofs in Ledger Cache:', listLedgerIds());
-
-      return res.status(404).json({
-        success: false,
-        proofFound: false,
-        message: 'Proof ID not found in ledger',
-      });
-    }
-
-    return res.json({
-      success: true,
-      status: foundProof.status || 'verified',
-      auraFlag: foundProof.auraFlag || 'GREEN',
-      classification: foundProof.classification || 'AUTHENTIC_CAMERA',
-      matchPercentage: 100,
-          hashMatch: 100,
-      proof: foundProof,
-      message: 'A.U.R.A. Certified Proof Verified in Ledger'
-    });
-
-  } catch (error) {
-    logger.error(`Error querying proof: ${error.message}`, { stack: error.stack });
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve proof',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-    });
+const hammingConfidence = (hashA, hashB) => {
+  if (!hashA || !hashB) return 0;
+  // Pad or truncate to same length
+  const len = Math.min(hashA.length, hashB.length);
+  let matches = 0;
+  for (let i = 0; i < len; i++) {
+    if (hashA[i] === hashB[i]) matches++;
   }
+  return parseFloat(((matches / len) * 100).toFixed(1));
 };
 
 /**
- * Verify media authenticity (POST /api/media/verify or POST /api/verify)
+ * Verify media authenticity
  */
 const verifyMedia = async (req, res) => {
   try {
-    const rawProofId = req.body?.proofId || req.params?.proofId || req.query?.proofId;
-    const cleanProofId = rawProofId ? String(rawProofId).trim().toUpperCase().replace(/.*\/VERIFY\//i, '').replace(/.*\//, '').replace(/[^A-Z0-9-]/g, '') : '';
-    const { fileHash, metadata, uploadedMediaHash } = req.body;
-    const safeUploadedHash = uploadedMediaHash || fileHash || null;
+    const { fileHash, metadata, uploadedMediaHash, proofId } = req.body;
 
-    // Validate input: requires at least metadata, uploadedMediaHash, or a Proof ID
-    if (!metadata && !safeUploadedHash && !cleanProofId) {
+    // Validate input (uploadedMediaHash can be optional if proofId alone is supplied for lookup)
+    if (!metadata && !uploadedMediaHash && !proofId) {
       return res.status(400).json({
         success: false,
         message: 'Missing required fields: metadata, uploadedMediaHash, or proofId',
       });
     }
 
+        const safeUploadedHash = uploadedMediaHash || fileHash || null;
     let isExactMatch = false;
     let proofFound = false;
     let existingProof = null;
     let storedHash = null;
-    let matchedProofId = cleanProofId || null;
+    let matchedProofId = proofId || null;
 
-    if (cleanProofId) {
-      const target = cleanProofId.startsWith('AURA-') ? cleanProofId : `AURA-${cleanProofId}`;
-      const idWithoutPrefix = cleanProofId.replace(/^AURA-/, '');
-      const escapedCleanId = escapeRegex(cleanProofId);
-      const escapedTarget = escapeRegex(target);
+    if (isDbConnected()) {
+      // Step 1: If proofId is explicitly provided, look up by proofId first
+      if (proofId) {
+        existingProof = await Proof.findOne({ proofId: proofId.trim() });
+      }
 
-      if (isDbConnected()) {
+      // Step 2: If no proof found by proofId, try looking up by image hash
+      if (!existingProof && safeUploadedHash) {
         existingProof = await Proof.findOne({
-          $or: [
-            { proofId: cleanProofId },
-            { proofId: target },
-            { proofId: idWithoutPrefix },
-            { proofId: { $regex: new RegExp(`^${escapedCleanId}`, 'i') } },
-            { proofId: { $regex: new RegExp(`^${escapedTarget}`, 'i') } },
-          ],
+          $or: [{ imageHash: safeUploadedHash }, { hash: safeUploadedHash }],
         });
       }
-      if (!existingProof) {
-        existingProof = getFromLedger(cleanProofId) || getFromLedger(target);
-      }
-    }
 
-    if (!existingProof && safeUploadedHash) {
-      if (isDbConnected()) {
-        existingProof = await Proof.findOne({
-          $or: [{ imageHash: safeUploadedHash }, { hash: safeUploadedHash }, { sha256Hash: safeUploadedHash }],
-        });
-      }
-    }
+      if (existingProof) {
+        proofFound = true;
+        matchedProofId = existingProof.proofId;
+        storedHash = existingProof.imageHash || existingProof.hash;
 
-    // Step 3 (Metadata / EXIF Extraction): Extract EXIF ImageDescription, UserComment, or filename timestamp
-    let isFallbackMatch = false;
-    if (!existingProof && metadata) {
-      let extractedTimestamp = null;
-      let targetTime = null;
-      
-      if (metadata.exif) {
-        extractedTimestamp = metadata.exif.ImageDescription || metadata.exif.UserComment;
-      }
-      
-      if (!extractedTimestamp && metadata.fileName) {
-        const match = metadata.fileName.match(/(\d{13})/);
-        if (match) {
-          extractedTimestamp = match[1];
-        }
-      }
-
-      if (extractedTimestamp) {
-        targetTime = new Date(Number(extractedTimestamp));
-      }
-      
-      if (isDbConnected()) {
-        const orConditions = [];
-        if (metadata.fileName) {
-           orConditions.push({ 'metadata.fileName': metadata.fileName });
-        }
-        if (extractedTimestamp) {
-           orConditions.push({ 'metadata.fileName': { $regex: extractedTimestamp } });
-           orConditions.push({ 'proofId': { $regex: extractedTimestamp } });
-        }
-        if (targetTime && !isNaN(targetTime.getTime())) {
-           orConditions.push({ createdAt: { $gte: new Date(targetTime.getTime() - 5000), $lte: new Date(targetTime.getTime() + 5000) } });
-           orConditions.push({ timestamp: { $gte: new Date(targetTime.getTime() - 5000), $lte: new Date(targetTime.getTime() + 5000) } });
-        }
-        
-        if (orConditions.length > 0) {
-           existingProof = await Proof.findOne({ $or: orConditions });
-        }
-        
-        if (existingProof) {
-          isFallbackMatch = true;
-          logger.info('[FALLBACK MATCH] Proof matched by filename or timestamp due to hash mismatch (compression).');
+        // Compare uploaded image hash with stored proof image hash
+        if (safeUploadedHash) {
+          isExactMatch = (storedHash === safeUploadedHash);
+        } else {
+          isExactMatch = true;
         }
       }
     }
 
-    if (existingProof) {
-      proofFound = true;
-      matchedProofId = existingProof.proofId;
-      storedHash = existingProof.imageHash || existingProof.sha256Hash || existingProof.hash;
-
-      if (safeUploadedHash) {
-        isExactMatch = (storedHash === safeUploadedHash);
-      } else {
-        isExactMatch = true;
-      }
-      
-      // If found by ProofID or fallback, we treat it as 100% match due to mobile compression
-      if (!isExactMatch && (cleanProofId || isFallbackMatch)) {
-         isExactMatch = true;
-         logger.info('[HASH NORMALIZATION] Overriding mismatch to 100% due to ProofID/Fallback match.');
-      }
-    }
-
-    // If pure Proof ID lookup was performed and not found in ledger, return HTTP 404
-    if (!proofFound && cleanProofId && !safeUploadedHash) {
-      if (isDbConnected()) {
-        try {
-          const availableProofs = await Proof.find({}, 'proofId');
-          console.log('Available Proofs:', availableProofs.map((p) => p.proofId));
-        } catch (e) {
-          console.log('Error listing available proofs:', e.message);
-        }
-      }
-      console.log('Available In-Memory Proofs:', listLedgerIds());
-
-      return res.status(404).json({
-        success: false,
-        proofFound: false,
-        message: 'Proof ID not found in ledger',
-      });
-    }
-
-    const matchPercentage = proofFound ? (isExactMatch ? 100 : 15.0) : 0;
-    const isRecaptured = existingProof ? Boolean(
-      existingProof.integrityAnalysis?.isRecaptured || 
-      existingProof.isRecaptured || 
-      existingProof.integrityAnalysis?.screenDefense?.isRecaptured ||
-      existingProof.integrityAnalysis?.screenDefense?.result === 'failed'
-    ) : false;
-
-    const screenDefensePassed = existingProof ? (
-      !isRecaptured && Boolean(
-        existingProof.integrityAnalysis?.screenDefense?.screenDefensePassed ||
-        existingProof.screenDefensePassed ||
-        existingProof.integrityAnalysis?.screenDefense?.result === 'passed'
-      )
-    ) : true;
-
-    let auraFlag = 'GREEN';
-    let statusMessage = '✅ AUTHENTIC CAPTURE';
-    let statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID';
-    let status = 'verified';
-
-    if (!proofFound) {
-      auraFlag = 'YELLOW';
-      statusMessage = '⚠️ UNVERIFIED (NO PROOF)';
-      statusDetails = 'No matching cryptographic proof registered in the AURA ledger.';
-      status = 'unverified';
-    } else if (isRecaptured) {
-      auraFlag = 'RED';
-      statusMessage = '❌ SECOND-COPY DETECTED (RECAPTURED)';
-      statusDetails = 'Screen replay detected. Optical flicker and display artifacts identified.';
-      status = 'tampered';
-    } else if (!isExactMatch) {
-      auraFlag = 'RED';
-      statusMessage = '❌ MEDIA MODIFIED (TAMPERED)';
-      statusDetails = 'Cryptographic hash mismatch. Media has been altered after capture.';
-      status = 'tampered';
-    }
-
-    const confidence = proofFound
-      ? (isExactMatch ? (existingProof.confidence || 99.7) : 15.0)
+    // Deterministic match percentage:
+    // If exact match on registered proof: 100%
+    // If proof found but hash mismatch (tampered): 15%
+    // If not found in database ledger: 0% (Unregistered)
+    const matchPercentage = proofFound 
+      ? (isExactMatch ? 100 : 15.0) 
       : 0;
 
-    const verification = {
+    const confidence = isExactMatch ? 99.7 : (proofFound ? 15.0 : 0);
+
+    let status;
+    let auraFlag;
+    let statusDetails;
+    let message;
+
+    const isProofAuthentic = existingProof ? (existingProof.status === 'authentic' && (existingProof.integrityScore ?? 100) >= 70) : false;
+
+    if (isExactMatch && isProofAuthentic) {
+      status = 'authentic';
+      auraFlag = 'GREEN';
+      message = '✓ AUTHENTIC CAPTURE';
+      statusDetails = 'Proof Found | Media Integrity: MATCH | Cryptographic Proof: VALID';
+    } else if (proofFound) {
+      status = 'tampered';
+      auraFlag = 'RED';
+      message = '✗ MEDIA MODIFIED';
+      statusDetails = isExactMatch 
+        ? 'Proof Found | Media recorded as Tampered/Suspicious' 
+        : 'Proof Found | Media Integrity: MISMATCH';
+    } else {
+      status = 'unverified';
+      auraFlag = 'YELLOW';
+      message = '? UNVERIFIED MEDIA';
+      statusDetails = 'No registered AURA proof found in ledger (Unverified External Hash)';
+    }
+
+    const verificationId = `VERIF_${uuidv4()}`;
+    const verificationResult = {
+      verificationId,
       proofId: matchedProofId,
       status,
-      isVerified: status === 'verified' || status === 'authentic',
       confidence,
       auraFlag,
-      statusMessage,
+      statusMessage: message,
       statusDetails,
       proofFound,
-      isRecaptured,
-      screenDefensePassed,
-      sensorsPassed: status === 'verified' || status === 'authentic',
-      hashMatch: matchPercentage,
-      integrityScore: existingProof?.integrityScore || (status === 'tampered' ? 25 : 98),
-      aiProbability: status === 'tampered' ? 0.85 : 0.02,
-      classification: status === 'tampered' ? 'AI_OR_SCREEN_REPLAY' : 'AUTHENTIC_CAMERA',
       hashValidation: {
         isValid: isExactMatch,
         matchPercentage,
-        status: isExactMatch 
-          ? 'Exact Match (100% Cryptographic Integrity)' 
-          : (proofFound ? 'Hash Mismatch (Media Altered)' : 'No Registered Proof Found'),
-        uploadedHash: safeUploadedHash || 'none',
-        storedHash: storedHash || 'none',
+        status: proofFound ? (isExactMatch ? 'Verified Match' : 'Hash Mismatch') : '0% Match / Unregistered',
+        uploadedHash: safeUploadedHash ? safeUploadedHash.substring(0, 16) + '...' : 'none',
+        storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none (Unregistered)',
       },
-      sensorValidation: proofFound ? (screenDefensePassed ? 'passed' : 'failed') : 'unknown',
-      metadataConsistency: proofFound ? 'consistent' : 'unknown',
+      sensorValidation: isExactMatch ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+      metadataConsistency: isExactMatch ? 'consistent' : 'unknown',
       timestamp: new Date().toISOString(),
       screenDefense: {
-        result: screenDefensePassed ? 'passed' : 'failed',
-        magnetometerPassed: screenDefensePassed,
-        lightFlickerPassed: screenDefensePassed,
-        details: isRecaptured 
-          ? 'Screen flicker or magnetic display disturbance detected' 
-          : 'Verified real-world ambient environment',
+        result: (isExactMatch && isProofAuthentic) ? 'passed' : (proofFound ? 'failed' : 'unknown'),
+        magnetometerPassed: (isExactMatch && isProofAuthentic),
+        lightFlickerPassed: (isExactMatch && isProofAuthentic),
+        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'Unverified external media (No telemetry sealed)',
       },
       physicsDefense: {
-        motionPassed: true,
-        gravityConsistent: true,
-        details: 'Handheld human micro-tremor signature consistent with authentic capture',
+        motionPassed: (isExactMatch && isProofAuthentic),
+        gravityConsistent: (isExactMatch && isProofAuthentic),
+        details: (isExactMatch && isProofAuthentic) ? 'Verified from authentic proof record' : 'No handheld micro-tremor telemetry found in ledger',
       },
-      sensorMetrics: existingProof?.sensorMetrics || existingProof?.sensorData || null,
       proofDetails: existingProof ? {
         proofId: existingProof.proofId,
-        capturedAt: existingProof.createdAt || existingProof.timestamp || existingProof.metadata?.timestamp || existingProof.metadata?.capturedAt || new Date().toISOString(),
-        integrityScore: existingProof.integrityScore || (isExactMatch ? 98 : 30),
-        confidence: existingProof.confidence || 99.7,
-        deviceId: existingProof.metadata?.deviceId || 'Verified Device',
-        sensorData: existingProof.sensorData || existingProof.sensorMetrics,
-        metadata: existingProof.metadata,
-        imageData: existingProof.imageData,
-        imageHash: existingProof.imageHash || existingProof.sha256Hash,
+        capturedAt: existingProof.timestamp,
+        integrityScore: existingProof.integrityScore || 95,
+        confidence: existingProof.overallConfidence || 99.7,
+        deviceId: existingProof.deviceId || 'Verified Device',
         exif: existingProof.metadata?.exif || null,
+        sensorStats: existingProof.sensorData ? {
+          magnetometer: existingProof.sensorData.magnetometer ? calculateDetailedStats(existingProof.sensorData.magnetometer) : null,
+          light: existingProof.sensorData.light ? calculateLightStats(existingProof.sensorData.light) : null,
+          accelerometer: existingProof.sensorData.accelerometer ? calculateDetailedStats(existingProof.sensorData.accelerometer) : null,
+        } : null,
       } : null,
     };
 
-    
-    logger.info(`Verification result for ${matchedProofId || 'unregistered'}: ${status} (AuraFlag: ${auraFlag}, Match: ${matchPercentage}%)`);
+    logger.info(`Verification complete: ${verificationId} — ${status} (ProofID: ${matchedProofId || 'none'})`);
 
-    if (proofFound && existingProof) {
-      return res.json({
-        success: true,
-        status: existingProof.status || 'verified',
-        auraFlag: existingProof.auraFlag || 'GREEN',
-        classification: existingProof.classification || 'AUTHENTIC_CAMERA',
-        matchPercentage: 100,
-          hashMatch: 100,
-        proof: existingProof,
-        message: 'A.U.R.A. Certified Proof Verified in Ledger'
-      });
-    }
-
-    return res.status(200).json({
+    res.json({
       success: true,
-      isVerified: status === 'verified' || status === 'authentic',
-      proof: existingProof || verification.proofDetails || null,
-      hashMatch: matchPercentage,
-      auraFlag,
-      sensors: (status === 'verified' || status === 'authentic') ? 'PASSED' : 'FAILED',
-      sensorsPassed: (status === 'verified' || status === 'authentic'),
-      status,
-      confidence,
-      integrityScore: verification.integrityScore,
-      aiProbability: verification.aiProbability,
-      classification: verification.classification,
-      verification,
-      message: statusMessage,
+      verification: verificationResult,
+      message,
     });
   } catch (error) {
     logger.error(`Error verifying media: ${error.message}`, { stack: error.stack });
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to verify media',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-    });
-  }
-};
-
-/**
- * Decode QR Code from an uploaded image base64
- * POST /api/media/decode-qr or POST /api/verify/scan-qr
- */
-const decodeQrCode = async (req, res) => {
-  try {
-    const { image } = req.body;
-
-    if (!image) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required field: image (base64 string)',
-      });
-    }
-
-    const cleanBase64 = String(image).replace(/^data:image\/\w+;base64,/, '');
-    const imageBuffer = Buffer.from(cleanBase64, 'base64');
-    
-    let pipeline = sharp(imageBuffer).ensureAlpha();
-    const metadata = await sharp(imageBuffer).metadata();
-
-    if (metadata.width > 1600 || metadata.height > 1600) {
-      pipeline = pipeline.resize({ width: 1600, height: 1600, fit: 'inside' });
-    }
-
-    const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
-    const clampedArray = new Uint8ClampedArray(data.buffer, data.byteOffset, data.length);
-    const qrCode = jsQR(clampedArray, info.width, info.height);
-
-    if (!qrCode || !qrCode.data) {
-      return res.json({
-        success: false,
-        message: 'No QR code detected in the selected image',
-      });
-    }
-
-    logger.info(`[QR] Successfully decoded QR code: ${qrCode.data}`);
-    return res.json({
-      success: true,
-      data: qrCode.data,
-      message: 'QR code decoded successfully',
-    });
-  } catch (error) {
-    logger.error(`[QR] Error decoding QR code: ${error.message}`, { stack: error.stack });
     res.status(500).json({
       success: false,
-      message: 'Failed to decode QR code',
+      message: 'Failed to verify media',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -449,12 +191,15 @@ const storeVerificationResult = async (req, res) => {
     }
 
     const verificationId = `RESULT_${uuidv4()}`;
+
+    // Extract actual verification payload (handles both nested .verification and direct object)
     const actualVerif = verificationResult.verification || verificationResult;
 
+    // Normalize status to valid schema enum ('authentic', 'tampered', 'inconclusive', 'unverified')
     let rawStatus = actualVerif.status || actualVerif.auraFlag || 'unverified';
     rawStatus = String(rawStatus).toLowerCase();
     let status = 'unverified';
-    if (rawStatus.includes('auth') || rawStatus.includes('green') || rawStatus.includes('pass') || rawStatus.includes('verif')) {
+    if (rawStatus.includes('auth') || rawStatus.includes('green') || rawStatus.includes('pass')) {
       status = 'authentic';
     } else if (rawStatus.includes('tamp') || rawStatus.includes('fail') || rawStatus.includes('red')) {
       status = 'tampered';
@@ -464,6 +209,7 @@ const storeVerificationResult = async (req, res) => {
       status = 'unverified';
     }
 
+    // Normalize confidence (0 - 100 number)
     let rawConfidence = actualVerif.confidence ?? actualVerif.overallConfidence ?? actualVerif.overallScore ?? (status === 'authentic' ? 99.7 : 0);
     let confidence = Number(rawConfidence);
     if (!Number.isFinite(confidence) || isNaN(confidence)) {
@@ -471,6 +217,7 @@ const storeVerificationResult = async (req, res) => {
     }
     confidence = Math.max(0, Math.min(100, parseFloat(confidence.toFixed(1))));
 
+    // Resolve proofId
     const resolvedProofId = actualVerif.proofId || actualVerif.id || actualVerif.verificationId || `PROOF_${mediaHash.slice(0, 12)}`;
 
     let persistedToDb = false;
@@ -505,7 +252,7 @@ const storeVerificationResult = async (req, res) => {
         logger.warn(`Could not persist verification result to DB: ${dbError.message}`);
       }
     } else {
-      logger.warn('MongoDB not connected - verification result not persisted');
+      logger.warn('MongoDB not connected — verification result not persisted');
     }
 
     res.json({
@@ -541,7 +288,7 @@ const getVerificationHistory = async (req, res) => {
       });
     }
 
-    const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100); // cap at 100
     const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
 
     const [history, total] = await Promise.all([
@@ -549,7 +296,7 @@ const getVerificationHistory = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(limit)
         .skip(skip)
-        .select('-__v'),
+        .select('-__v'), // exclude Mongoose version key
       VerificationResult.countDocuments(),
     ]);
 
@@ -586,6 +333,7 @@ const analyzeMetadata = async (req, res) => {
       });
     }
 
+    // Check rough size — base64 of 40MB image ≈ 53MB string
     if (typeof image === 'string' && image.length > 55_000_000) {
       return res.status(413).json({
         success: false,
@@ -599,10 +347,12 @@ const analyzeMetadata = async (req, res) => {
     const result = await analyzeImageMetadata(buffer, exifData);
 
     logger.info(
-      `[ML] Analysis complete - classification: ${result.classification} ` +
+      `[ML] Analysis complete — classification: ${result.classification} ` +
       `(AI: ${result.aiProbability}%, confidence: ${result.confidence}%)`
     );
 
+    // Always include fingerprint for the Physical Evidence card in the UI.
+    // Strip only GPS coordinates from the fingerprint to protect location privacy.
     const { metadataFingerprint, ...restResult } = result;
     const safeFingerprint = metadataFingerprint
       ? (({ latitude, longitude, ...fp }) => fp)(metadataFingerprint)
@@ -630,8 +380,6 @@ const analyzeMetadata = async (req, res) => {
 
 module.exports = {
   verifyMedia,
-  verifyByProofId,
-  decodeQrCode,
   storeVerificationResult,
   getVerificationHistory,
   analyzeMetadata,

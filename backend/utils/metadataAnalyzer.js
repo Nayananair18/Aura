@@ -27,7 +27,8 @@ const { analyzeELA } = require('./elaAnalyzer');
 // ══════════════════════════════════════════════════════════════════
 
 const TRAINING_DATA = [
-  // -- Real camera images (label = 0) --------------------------
+  // ── Real camera images (label = 0) ──────────────────────────
+  // Format: { f: featureVector, l: label, src: descriptor }
   { f: [1,1,1,1,1,1,0,0,0,0,1,1,1], l: 0, src: 'DSLR_full_exif'         },
   { f: [1,1,1,1,1,0,0,0,0,0,1,1,1], l: 0, src: 'DSLR_no_gps'            },
   { f: [1,1,1,1,1,1,0,0,0,0,1,0,1], l: 0, src: 'smartphone_no_flash'    },
@@ -43,36 +44,30 @@ const TRAINING_DATA = [
   { f: [1,1,1,1,1,0,0,0,0,0,1,1,1], l: 0, src: 'sony_rx100'             },
   { f: [1,1,1,1,0,1,0,0,0,0,1,1,1], l: 0, src: 'fuji_xpro'             },
   { f: [1,1,1,1,1,0,0,0,0,0,1,0,1], l: 0, src: 'gopro'                  },
+  // Android phones — GPS often denied by user; EXIF still present
   { f: [1,1,1,1,1,0,0,0,0,0,1,1,1], l: 0, src: 'android_no_gps'        },
   { f: [1,1,1,0,1,0,0,0,0,0,1,1,1], l: 0, src: 'android_wide_angle'    },
   { f: [1,1,1,1,1,0,0,0,0,0,0,1,1], l: 0, src: 'android_no_flash_gps'  },
+  // AURA-captured: resize strips some tags but make/model/shutter always survive
   { f: [1,1,1,1,1,0,0,0,0,0,1,0,0], l: 0, src: 'aura_android_capture'  },
   { f: [1,1,1,1,1,0,0,0,0,0,0,0,0], l: 0, src: 'aura_minimal_exif'     },
-  // Stripped / compressed real-world camera photos (WhatsApp, Web, Social)
-  { f: [1,1,0,0,0,0,0,0,0,0,0,0,0], l: 0, src: 'real_camera_compressed' },
-  { f: [1,0,0,0,0,0,0,0,0,0,0,0,0], l: 0, src: 'smartphone_make_only'  },
-  { f: [0,0,0,0,0,0,0,0,0,0,0,0,0], l: 0, src: 'stripped_camera_photo' },
-  { f: [0,0,0,0,0,0,0,0,0,0,0,0,0], l: 0, src: 'whatsapp_web_upload'   },
-  { f: [0,0,0,0,0,0,0,0,0,0,0,0,0], l: 0, src: 'twitter_compressed_jpeg'},
-  { f: [0,0,0,0,0,0,0,1,0,0,0,0,0], l: 0, src: 'web_1024_res_photo'    },
-  { f: [0,0,0,0,0,0,0,1,0,0,0,0,0], l: 0, src: 'web_scaled_photo'      },
-  { f: [1,1,1,0,0,0,0,1,0,0,0,0,0], l: 0, src: 'phone_scaled_1024'     },
 
-  // -- AI-generated images (label = 1) -------------------------
+  // ── AI-generated images (label = 1) ─────────────────────────
   { f: [0,0,0,0,0,0,1,1,1,1,0,0,0], l: 1, src: 'stable_diffusion_full'  },
   { f: [0,0,0,0,0,0,0,1,1,0,0,0,0], l: 1, src: 'dalle3'                 },
-  { f: [0,0,0,0,0,0,1,0,1,1,0,0,0], l: 1, src: 'midjourney'             },
+  { f: [0,0,0,0,0,0,1,0,0,1,0,0,0], l: 1, src: 'midjourney'             },
   { f: [0,0,0,0,0,0,1,1,0,0,0,0,0], l: 1, src: 'comfyui_txt2img'        },
-  { f: [0,1,0,0,0,0,0,0,1,1,0,0,0], l: 1, src: 'ai_with_model_tag'      },
+  { f: [0,1,0,0,0,0,0,0,0,1,0,0,0], l: 1, src: 'ai_with_model_tag'      },
   { f: [0,0,0,0,0,0,1,1,1,0,0,0,0], l: 1, src: 'automatic1111'          },
   { f: [0,0,0,0,0,0,0,0,1,1,0,0,0], l: 1, src: 'adobe_firefly'          },
-  { f: [0,0,0,0,0,0,1,0,1,0,0,0,0], l: 1, src: 'novelai'                },
-  { f: [0,0,0,0,0,0,0,1,1,1,0,0,0], l: 1, src: 'bing_creator'           },
-  { f: [0,0,0,0,0,0,0,0,1,1,0,0,0], l: 1, src: 'canva_ai'               },
+  { f: [0,0,0,0,0,0,1,0,0,0,0,0,0], l: 1, src: 'novelai'                },
+  { f: [0,0,0,0,0,0,0,1,0,1,0,0,0], l: 1, src: 'bing_creator'           },
+  { f: [0,0,0,0,0,0,0,0,0,1,0,0,0], l: 1, src: 'canva_ai'               },
   { f: [0,0,0,0,0,0,1,0,1,0,0,0,0], l: 1, src: 'ideogram'               },
   { f: [0,0,0,0,0,0,0,1,1,0,0,0,0], l: 1, src: 'runwayml'               },
-  { f: [0,0,0,0,0,0,1,1,1,1,0,0,0], l: 1, src: 'invokeai'               },
-  { f: [1,0,0,0,0,0,1,0,1,0,0,0,1], l: 1, src: 'ai_minimal_exif'        },
+  { f: [0,0,0,0,0,0,1,1,0,1,0,0,0], l: 1, src: 'invokeai'               },
+  { f: [1,0,0,0,0,0,1,0,0,0,0,0,1], l: 1, src: 'ai_minimal_exif'        },
+  { f: [0,0,0,0,0,0,0,0,0,0,0,0,0], l: 1, src: 'zero_metadata_ai'       },
 ];
 
 const K = 5; // default k — consistent with your Python evaluation showing k=5 at 98%
@@ -446,71 +441,56 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   const hasExplicitAiPrompt = SIGNALS.find(s => s.id === 'xmp_prompt_field')?.check(metadataFingerprint) || false;
   const isExplicitAi = hasExplicitAiSoftware || hasExplicitAiPrompt;
 
-  // 5. Ensemble fusion (weighted average & physical hardware gate)
-  const hasCameraMake = Boolean(metadataFingerprint.make && String(metadataFingerprint.make).trim() !== '');
-  const hasCameraModel = Boolean(metadataFingerprint.model && String(metadataFingerprint.model).trim() !== '');
-  const hasShutter = metadataFingerprint.shutterSpeed != null || metadataFingerprint.exposureTime != null;
-  const hasAperture = metadataFingerprint.aperture != null || metadataFingerprint.fNumber != null;
-  const hasIso = metadataFingerprint.isoSpeedRating != null || metadataFingerprint.iso != null;
-  const hasFocalLength = metadataFingerprint.focalLength != null;
-
-  // Valid physical camera hardware EXIF:
-  // Genuine physical camera devices embed Make/Model and optical parameters (ISO, Shutter, Aperture, FocalLength).
-  const hasHardwareExif = (hasCameraMake || hasCameraModel) && (hasShutter || hasAperture || hasIso || hasFocalLength || (hasCameraMake && hasCameraModel));
-
-  let W_KNN    = 0.45;
+  // ── 5. Ensemble fusion (weighted average & physical hardware gate) ──
+  let W_KNN    = 0.40;
   let W_VISUAL = 0.30;
-  let W_ELA    = 0.25;
+  let W_ELA    = 0.30;
 
   let effectiveVisualAiProb = visualAiProb;
   let effectiveElaAiProb = elaAiProb;
-  let effectiveKnnAiProb = knnAiProb;
-  let aiProbability;
-  let classification;
-  let confidence;
 
-  // HARD OVERRIDE / PHYSICAL HARDWARE GATE:
-  // If valid physical camera hardware EXIF is present (Make, Model, Exposure, ISO, Lens) and no explicit AI generation tags:
-  // Cap/damp the AI probability strictly (< 25%) and classify as AUTHENTIC_CAMERA / REAL_CAMERA!
-  if (hasHardwareExif && !isExplicitAi) {
-    effectiveVisualAiProb = Math.min(visualAiProb, 12.0);
-    effectiveElaAiProb = Math.min(elaAiProb, 12.0);
-    effectiveKnnAiProb = Math.min(knnAiProb, 5.0);
+  // HARD OVERRIDE / PHYSICAL GATE:
+  // If physical EXIF presence score >= 70% (has Make, Model, Exposure, F-Number, ISO, etc.)
+  // and no explicit AI software tag is present:
+  // Document photos, high-contrast text, or clean macros have sharp edges that confuse visual CNNs.
+  // Physical optical hardware proof (Make/Model/ISO/Shutter/Lens) is ground truth physics!
+  if (exifScore >= 70 && !isExplicitAi) {
+    // Cap visual & ELA false-positive penalties
+    effectiveVisualAiProb = Math.min(visualAiProb, 15.0);
+    effectiveElaAiProb = Math.min(elaAiProb, 15.0);
     W_KNN = 0.70;
     W_VISUAL = 0.15;
     W_ELA = 0.15;
-
-    const rawEnsemble = (W_KNN * effectiveKnnAiProb + W_VISUAL * effectiveVisualAiProb + W_ELA * effectiveElaAiProb);
-    aiProbability = parseFloat(Math.min(rawEnsemble, 14.5).toFixed(1));
-    classification = 'AUTHENTIC_CAMERA';
-    const realProb = parseFloat((100 - aiProbability).toFixed(1));
-    confidence = parseFloat(Math.min(realProb, 98.8).toFixed(1));
-  } else if (isExplicitAi) {
-    // Explicit AI generation tags or prompt metadata detected
-    const rawEnsemble = (W_KNN * knnAiProb + W_VISUAL * visualAiProb + W_ELA * elaAiProb);
-    aiProbability = parseFloat(Math.max(rawEnsemble, 88.0).toFixed(1));
-    classification = 'AI_GENERATED';
-    confidence = parseFloat(Math.min(aiProbability + 5, 99.5).toFixed(1));
-  } else {
-    // Unverified external media without EXIF and without explicit AI tags
-    // Decouple from AI synthesis: treat as UNCERTAIN rather than false AI
-    const rawEnsemble = (W_KNN * knnAiProb + W_VISUAL * visualAiProb + W_ELA * elaAiProb);
-    if (rawEnsemble >= 70.0) {
-      classification = 'AI_GENERATED';
-      aiProbability = parseFloat(rawEnsemble.toFixed(1));
-      confidence = parseFloat(Math.min(aiProbability + 5, 99.0).toFixed(1));
-    } else if (rawEnsemble < 25.0) {
-      classification = 'REAL_CAMERA';
-      aiProbability = parseFloat(rawEnsemble.toFixed(1));
-      confidence = parseFloat((100 - aiProbability).toFixed(1));
-    } else {
-      classification = 'UNCERTAIN';
-      aiProbability = parseFloat(Math.min(rawEnsemble, 48.0).toFixed(1));
-      confidence = parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
-    }
   }
 
+  const ensembleAiProb = parseFloat(
+    (W_KNN * knnAiProb + W_VISUAL * effectiveVisualAiProb + W_ELA * effectiveElaAiProb).toFixed(1)
+  );
+  const aiProbability   = ensembleAiProb;
   const realProbability = parseFloat((100 - aiProbability).toFixed(1));
+
+  // ── 6. Classification band (Strict Rule: "No Physical Proof = Not Verified") ──
+  const hasHardwareExif = Boolean(
+    (metadataFingerprint.make && String(metadataFingerprint.make).trim() !== '') ||
+    (metadataFingerprint.model && String(metadataFingerprint.model).trim() !== '') ||
+    metadataFingerprint.shutterSpeed != null ||
+    metadataFingerprint.aperture != null ||
+    metadataFingerprint.focalLength != null
+  );
+
+  let classification;
+  let confidence;
+  if (aiProbability >= 70) {
+    classification = 'AI_GENERATED';
+    confidence = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
+  } else if (aiProbability < 25 && hasHardwareExif) {
+    // REAL_CAMERA if hardware EXIF is verified and AI prob < 25%
+    classification = 'REAL_CAMERA';
+    confidence = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
+  } else {
+    classification = 'UNCERTAIN';
+    confidence = parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
+  }
 
   // ── 7. Signal report + visual signals ──
   const signals = SIGNALS.map((sig) => {
