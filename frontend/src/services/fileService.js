@@ -188,27 +188,6 @@ export const clearLocalStorage = async () => {
 };
 
 /**
- * Helper to ensure a file URI is readable on Android scoped storage
- */
-const ensureReadableFileUri = async (fileUri) => {
-  if (Platform.OS === 'web' || !fileUri) return fileUri;
-
-  const filename = fileUri.split('/').pop() || `temp_${Date.now()}.jpg`;
-  const destinationUri = `${FileSystem.cacheDirectory}aura_input_${filename}`;
-
-  try {
-    await FileSystem.copyAsync({
-      from: fileUri,
-      to: destinationUri,
-    });
-    return destinationUri;
-  } catch (copyError) {
-    console.warn('[FileService] Copy fallback warning:', copyError.message);
-    return fileUri;
-  }
-};
-
-/**
  * Pick a file from device storage
  */
 export const pickFile = async () => {
@@ -224,23 +203,8 @@ export const pickFile = async () => {
 
     const file = result.assets[0];
 
-    // Ensure the returned URI is copied to app cache so it's guaranteed readable on Android
-    let finalUri = file.uri;
-    if (Platform.OS === 'android') {
-      try {
-        const cachedUri = `${FileSystem.cacheDirectory}picked_${Date.now()}_${file.name || 'image.jpg'}`;
-        await FileSystem.copyAsync({
-          from: file.uri,
-          to: cachedUri,
-        });
-        finalUri = cachedUri;
-      } catch (copyErr) {
-        console.warn('[pickFile] Android cache copy warning:', copyErr.message);
-      }
-    }
-
     return {
-      uri: finalUri,
+      uri: file.uri,
       name: file.name,
       size: file.size,
       mimeType: file.mimeType,
@@ -280,17 +244,13 @@ export const pickImageFromGallery = async () => {
     let base64 = asset.base64;
     let finalUri = asset.uri;
 
-    if (Platform.OS === 'android' && asset.uri) {
-      finalUri = await ensureReadableFileUri(asset.uri);
-    }
-
     if (!base64 && finalUri) {
       base64 = await getFileAsBase64(finalUri);
     }
 
     return {
       uri: finalUri,
-      name: asset.fileName || `gallery_qr_${Date.now()}.jpg`,
+      name: asset.fileName || `gallery_${Date.now()}.jpg`,
       size: asset.fileSize || 0,
       mimeType: asset.mimeType || 'image/jpeg',
       width: asset.width,
@@ -315,42 +275,42 @@ export const pickImageFromGallery = async () => {
 };
 
 /**
- * Get file contents as base64
+ * Get file contents as base64.
+ * Uses fetch() + FileReader which streams directly via React Native Android ContentResolver / iOS fetch,
+ * bypassing ExponentFileSystem native permission locks on DocumentPicker URIs.
  */
 export const getFileAsBase64 = async (fileUri) => {
   try {
-    if (Platform.OS === 'web') {
+    if (!fileUri) throw new Error('No file URI provided');
+
+    // Primary: fetch(fileUri) + FileReader (works for content://, file://, and DocumentPicker URIs on Android/iOS/Web)
+    try {
       const response = await fetch(fileUri);
       const blob = await response.blob();
-      return new Promise((resolve, reject) => {
+      return await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          const base64data = reader.result.split(',')[1];
-          resolve(base64data);
+          if (typeof reader.result === 'string') {
+            const base64data = reader.result.split(',')[1] || reader.result;
+            resolve(base64data);
+          } else {
+            reject(new Error('FileReader did not return string'));
+          }
         };
-        reader.onerror = reject;
+        reader.onerror = (err) => reject(err);
         reader.readAsDataURL(blob);
       });
+    } catch (fetchErr) {
+      console.warn('[FileService] fetch base64 failed, attempting FileSystem fallback:', fetchErr.message);
     }
 
-    let targetUri = fileUri;
-    try {
-      const fileContent = await FileSystem.readAsStringAsync(targetUri, {
-        encoding: 'base64',
-      });
-      return fileContent;
-    } catch (readErr) {
-      // If direct read fails (e.g. Android DocumentPicker unreadable location),
-      // copy to FileSystem.cacheDirectory and retry read
-      console.warn('[FileService] Direct read failed, copying file to cache:', readErr.message);
-      targetUri = await ensureReadableFileUri(fileUri);
-      const fileContent = await FileSystem.readAsStringAsync(targetUri, {
-        encoding: 'base64',
-      });
-      return fileContent;
-    }
+    // Secondary: FileSystem.readAsStringAsync fallback
+    const fileContent = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: 'base64',
+    });
+    return fileContent;
   } catch (error) {
-    console.error('Error reading file:', error);
+    console.error('Error reading file as base64:', error);
     throw error;
   }
 };
