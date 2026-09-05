@@ -87,13 +87,13 @@ export const HomeScreen = ({ navigation, theme }) => {
         {/* Cloud Storage */}
         <Text style={styles.sectionLabel}>CLOUD STORAGE</Text>
         <Card theme={theme}>
-          <View style={[styles.actionRow, { paddingVertical: theme.spacing.sm }]}>
+          <View style={[styles.actionRow, { paddingVertical: theme.spacing.xs }]}>
             <View style={styles.actionInfo}>
               <Text style={styles.actionIcon}>📁</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.actionTitle, { fontSize: 16 }]}>Google Drive</Text>
+              <View style={{ flex: 1, paddingRight: theme.spacing.xs }}>
+                <Text style={[styles.actionTitle, { fontSize: 15 }]}>Google Drive</Text>
                 <Text style={styles.actionDesc}>
-                  {driveAuthenticated ? 'Connected. Photos will sync to Drive.' : 'Connect to automatically save photos.'}
+                  {driveAuthenticated ? 'Connected. Auto-sync enabled.' : 'Auto-save captured photos.'}
                 </Text>
               </View>
             </View>
@@ -107,15 +107,38 @@ export const HomeScreen = ({ navigation, theme }) => {
           </View>
         </Card>
 
-        {/* How it Works  */}
-        <Text style={styles.sectionLabel}>HOW IT WORKS</Text>
+        {/* How it Works - Verification Layers */}
+        <Text style={styles.sectionLabel}>VERIFICATION LAYERS</Text>
 
         <Card theme={theme}>
-          <StepItem number="1" title="Secure Capture" desc="Extract raw telemetry from 6 sensors" theme={theme} />
+          <StepItem
+            number="1"
+            title="Hardware EXIF & Sensors (KNN)"
+            desc="Extract camera metadata & 6-sensor environmental physics"
+            theme={theme}
+          />
           <View style={styles.stepDivider} />
-          <StepItem number="2" title="On-Device ML" desc="Analyze physics patterns for consistency" theme={theme} />
+          <StepItem
+            number="2"
+            title="Visual Optics Forensics (CNN)"
+            desc="Analyze spatial noise energy & DCT block variance"
+            theme={theme}
+          />
           <View style={styles.stepDivider} />
-          <StepItem number="3" title="Crypto Sealing" desc="Fuse media and sensors into SHA-256 seal" theme={theme} isLast />
+          <StepItem
+            number="3"
+            title="Screen Recapture & PWM (FFT)"
+            desc="2D FFT frequency lattice & optical flicker grid analysis"
+            theme={theme}
+          />
+          <View style={styles.stepDivider} />
+          <StepItem
+            number="4"
+            title="Cryptographic Sealing (SHA-256)"
+            desc="Fuse media hashes & sensor proof into immutable seal"
+            theme={theme}
+            isLast
+          />
         </Card>
 
         {/* 6 Sensors */}

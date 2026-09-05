@@ -1,6 +1,16 @@
 import { Camera } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library';
+import { Platform } from 'react-native';
 import { useCallback, useEffect, useState } from 'react';
+
+const MediaLibrary = Platform.OS === 'web' 
+  ? null 
+  : (function() {
+      try {
+        return require('expo-media-library/legacy');
+      } catch (e) {
+        return require('expo-media-library');
+      }
+    })();
 
 /**
  * Request camera permissions asynchronously
@@ -86,6 +96,7 @@ export const useCameraPermissions = () => {
  */
 export const requestMediaLibraryPermission = async () => {
   try {
+    if (!MediaLibrary || Platform.OS === 'web') return false;
     const { status } = await MediaLibrary.requestPermissionsAsync();
     return status === 'granted';
   } catch (error) {

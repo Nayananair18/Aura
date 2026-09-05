@@ -15,6 +15,7 @@ const {
 } = require("../utils/crypto");
 const logger = require("../utils/logger");
 const { saveToLedger } = require("../utils/ledgerStore");
+const { analyzeImageMetadata } = require("../utils/metadataAnalyzer");
 
 // Max raw media payload size before Sharp: 30MB base64
 const MAX_MEDIA_SIZE_BYTES = 30 * 1024 * 1024;
@@ -268,13 +269,35 @@ const generateAuthenticityProof = async (req, res) => {
       deviceId: metadata?.deviceId || null,
     };
 
+    // Run full pixel ML forensics and EXIF metadata extraction
+    let realMlAnalysis = null;
+    if (targetBuffer) {
+      try {
+        const mlRes = await analyzeImageMetadata(targetBuffer, metadata?.exif || metadata?.photoData?.exif);
+        if (mlRes) {
+          const { metadataFingerprint, ...restMl } = mlRes;
+          realMlAnalysis = {
+            ...restMl,
+            metadataFingerprint,
+            fileName: metadata?.fileName || 'capture.jpg',
+            isMock: false,
+          };
+        }
+      } catch (mlErr) {
+        logger.warn("[Proof] Real ML analysis error: " + mlErr.message);
+      }
+    }
+
     // Standardized Proof Document for MongoDB and In-Memory Ledger
     const proofDoc = {
       proofId,
       sha256Hash: finalImageHash || proofHash,
       imageHash: finalImageHash,
       hash: proofHash,
-      metadata: metadata?.exif || metadata || {},
+      metadata: realMlAnalysis?.metadataFingerprint || metadata?.exif || metadata || {},
+      metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      mlAnalysis: realMlAnalysis,
       sensorMetrics: sensorData,
       sensorData,
       sensorStats,
@@ -332,6 +355,9 @@ const generateAuthenticityProof = async (req, res) => {
       sensorMetrics: sensorData,
       imageScreenStats,
       spatiotemporalData,
+      mlAnalysis: realMlAnalysis,
+      metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       integrityAnalysis: {
         ...sensorResult,
         isRecaptured,

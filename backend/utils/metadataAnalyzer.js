@@ -509,30 +509,39 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
   //  IMPORTANT: Valid phone EXIF does NOT prevent SCREEN_RECAPTURE.
   //  A phone photographing a laptop screen produces real phone EXIF.
   // ══════════════════════════════════════════════════════════════════
-  const SCREEN_RECAPTURE_THRESHOLD = 0.40; // calibrated tunable constant
-  const SCREEN_ELEVATED_THRESHOLD = 0.25;
+  const SCREEN_RECAPTURE_THRESHOLD = 0.48;
+  const SCREEN_ELEVATED_THRESHOLD  = 0.35;
 
   let classification;
   let confidence;
 
-  if (screenScore >= SCREEN_RECAPTURE_THRESHOLD) {
-    // Screen forensic evidence is dominant — classify as SCREEN_RECAPTURE
-    // regardless of EXIF validity (phone EXIF does not disprove screen capture)
+  // Multi-signal requirement for screen recapture:
+  // Photos of real objects (notebook lined paper, window blinds, room curtains, textured fabrics)
+  // can produce an isolated frequency peak. Real screen captures display MULTIPLE simultaneous
+  // signals (e.g. Moiré lattice + refresh banding OR bezel rectangle geometry).
+  const numScreenSignalsTriggered = screenResult?.signals?.filter(s => s.triggered)?.length ?? 0;
+  const isStrongMultiSignalScreen = (screenScore >= SCREEN_RECAPTURE_THRESHOLD) && (
+    numScreenSignalsTriggered >= 2 || !hasHardwareExif || screenScore >= 0.65
+  );
+
+  if (isStrongMultiSignalScreen) {
+    // Screen forensic evidence is dominant and multi-signal verified
     classification = 'SCREEN_RECAPTURE';
-    confidence = parseFloat(Math.min(screenProbability + 5, 100).toFixed(1));
+    confidence = parseFloat(screenProbability.toFixed(1));
   } else if (isExplicitAi) {
     // Explicit AI generation tag or prompt found in XMP / EXIF metadata
     classification = 'AI_GENERATED';
-    confidence = parseFloat(Math.min(aiProbability + 5, 100).toFixed(1));
+    confidence = parseFloat(aiProbability.toFixed(1));
   } else if (aiProbability < 35 && hasHardwareExif && screenScore < SCREEN_ELEVATED_THRESHOLD) {
     // REAL: low AI probability + verified hardware EXIF + NO elevated screen signal
     classification = 'REAL';
-    confidence = parseFloat(Math.min(realProbability + 5, 100).toFixed(1));
+    confidence = parseFloat(realProbability.toFixed(1));
   } else {
-    // Ambiguous, stripped EXIF (social media upload), conflicting, or insufficient evidence:
-    // Strict AURA Rule: "No Physical Proof = Not Verified"
-    classification = 'NOT_VERIFIED';
-    confidence = parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
+    // Ambiguous, stripped EXIF, or minor single-signal artifact
+    classification = hasHardwareExif ? 'REAL' : 'NOT_VERIFIED';
+    confidence = classification === 'REAL'
+      ? parseFloat(realProbability.toFixed(1))
+      : parseFloat((40 + Math.abs(aiProbability - 50)).toFixed(1));
   }
 
   // ── 7. Signal report + visual signals ──
@@ -637,12 +646,12 @@ const analyzeImageMetadata = async (imageBuffer, providedExif = {}) => {
     featureVector,
 
     // ── Model B — Visual pixel ──
-    visualAiProbability: parseFloat(visualAiProb.toFixed(1)),
+    visualAiProbability: parseFloat(effectiveVisualAiProb.toFixed(1)),
     visualFeatures: visualResult?.features || null,
     visualError: visualResult?.error || null,
 
     // ── Model C — ELA ──
-    elaAiProbability: parseFloat(elaAiProb.toFixed(1)),
+    elaAiProbability: parseFloat(effectiveElaAiProb.toFixed(1)),
     elaMetrics: elaResult?.success ? elaResult.metrics : null,
 
     // ── Model D — Screen Recapture (independent dimension) ──

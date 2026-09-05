@@ -1,12 +1,10 @@
-import { useState, useEffect } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Camera, CameraView } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button } from '../components/Button';
 import { Card, SectionTitle } from '../components/Card';
 import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
-import { analyzeImageMetadata, decodeQrCode, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
+import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
 import * as FileService from '../services/fileService';
 
 // ─── Helpers & Styles ───
@@ -144,55 +142,6 @@ const getStyles = (theme) => {
       marginBottom: spacing.md,
     },
 
-    // QR Camera & Gallery Upload
-    cameraScannerContainer: {
-      height: 200,
-      borderRadius: 16,
-      overflow: 'hidden',
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.accent,
-    },
-    qrHintText: {
-      ...typography.footnote,
-      color: colors.textMuted,
-      textAlign: 'center',
-      marginBottom: spacing.sm,
-    },
-    galleryQrButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.accent + '60',
-      borderRadius: 12,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      width: '100%',
-    },
-    galleryQrButtonText: {
-      ...typography.callout,
-      color: colors.accent,
-      fontWeight: '700',
-    },
-    scannedBadge: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: 10,
-      padding: spacing.sm + 2,
-      marginTop: spacing.sm,
-      alignItems: 'center',
-    },
-    scannedBadgeText: {
-      ...typography.footnote,
-      color: colors.accent,
-      fontFamily: 'monospace',
-      fontWeight: '700',
-    },
-
     // Checks
     checkRow: {
       flexDirection: 'row',
@@ -256,39 +205,12 @@ const CheckRow = ({ icon, label, desc, theme }) => {
 };
 
 export const VerificationScreen = ({ navigation, theme }) => {
-  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'proofId' | 'qrScan'
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'proofId'
   const [isVerifying, setIsVerifying] = useState(false);
-  const [isDecodingQr, setIsDecodingQr] = useState(false);
   const [verifyStep, setVerifyStep] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
   const [proofIdInput, setProofIdInput] = useState('');
-  const [qrScannedData, setQrScannedData] = useState('');
   const [error, setError] = useState(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState(null);
-
-  const requestCameraPermission = async () => {
-    try {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasCameraPermission(status === 'granted');
-      return status === 'granted';
-    } catch (err) {
-      console.error('Error requesting camera permission:', err);
-      setHasCameraPermission(false);
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    const checkCamera = async () => {
-      try {
-        const { status } = await Camera.getCameraPermissionsAsync();
-        setHasCameraPermission(status === 'granted');
-      } catch (e) {
-        setHasCameraPermission(false);
-      }
-    };
-    checkCamera();
-  }, []);
 
   const handleUpload = async () => {
     try {
@@ -352,90 +274,6 @@ export const VerificationScreen = ({ navigation, theme }) => {
     return clean;
   };
 
-  const handleBarcodeScanned = ({ data }) => {
-    if (!data || isVerifying) return;
-    const extracted = extractProofId(data);
-    setQrScannedData(extracted);
-    setProofIdInput(extracted);
-    Alert.alert('QR Code Scanned', `Extracted Proof ID: ${extracted}`, [
-      { text: 'Verify Now', onPress: () => handleUnifiedVerify({ proofId: extracted }) },
-      { text: 'Scan Again', style: 'cancel' }
-    ]);
-  };
-
-  /**
-   * Handler for Uploading QR Code image from Phone Gallery
-   */
-  const handleGalleryQrUpload = async () => {
-    try {
-      setError(null);
-      setIsDecodingQr(true);
-
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('[AURA Gallery] Media library permission not explicitly granted, attempting picker...');
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.9,
-        base64: true,
-      });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        setIsDecodingQr(false);
-        return;
-      }
-
-      const asset = result.assets[0];
-      let base64 = asset.base64;
-      if (!base64 && asset.uri) {
-        base64 = await FileService.getFileAsBase64(asset.uri);
-      }
-
-      if (!base64) {
-        setIsDecodingQr(false);
-        setError('Could not process selected image');
-        Alert.alert('Error', 'Could not process selected image');
-        return;
-      }
-
-      // Send image to backend scan-qr / decode-qr endpoint
-      const qrResult = await decodeQrCode(base64);
-
-      if (!qrResult || !qrResult.success || !qrResult.data) {
-        setIsDecodingQr(false);
-        Alert.alert(
-          'No QR Code Found',
-          'No QR code detected in the selected image. Please choose an image with a clear AURA Proof QR code.'
-        );
-        return;
-      }
-
-      const extractedId = extractProofId(qrResult.data);
-      setQrScannedData(extractedId);
-      setProofIdInput(extractedId);
-      setIsDecodingQr(false);
-
-      Alert.alert(
-        'QR Code Detected',
-        `Extracted Proof ID: ${extractedId}`,
-        [
-          {
-            text: 'Verify Now',
-            onPress: () => handleUnifiedVerify({ proofId: extractedId }),
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
-    } catch (err) {
-      console.error('Error uploading QR from gallery:', err);
-      setIsDecodingQr(false);
-      Alert.alert('Upload Failed', 'Failed to decode QR code from selected image.');
-    }
-  };
-
   /**
    * Centralized Unified Verification Entry Point
    * Handles Upload, Proof ID, and QR Scanner/Gallery methods seamlessly
@@ -444,12 +282,8 @@ export const VerificationScreen = ({ navigation, theme }) => {
     const targetFile = overrides.uploadedFile || (activeTab === 'upload' ? uploadedFile : null);
     
     let rawProofId = overrides.proofId;
-    if (!rawProofId) {
-      if (activeTab === 'proofId') {
-        rawProofId = proofIdInput;
-      } else if (activeTab === 'qrScan') {
-        rawProofId = qrScannedData;
-      }
+    if (!rawProofId && activeTab === 'proofId') {
+      rawProofId = proofIdInput;
     }
 
     const cleanInputId = (rawProofId || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -460,7 +294,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
     }
 
     if (!targetFile && !targetProofId) {
-      Alert.alert('Required', 'Please pick an image file, enter a Proof ID, or scan/upload a QR code.');
+      Alert.alert('Required', 'Please pick an image file or enter a Proof ID.');
       return;
     }
 
@@ -630,15 +464,6 @@ export const VerificationScreen = ({ navigation, theme }) => {
           >
             <Text style={[styles.tabText, activeTab === 'proofId' && styles.tabTextActive]}>🔑 Proof ID</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              setActiveTab('qrScan');
-              if (hasCameraPermission !== true) requestCameraPermission();
-            }}
-            style={[styles.tabButton, activeTab === 'qrScan' && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, activeTab === 'qrScan' && styles.tabTextActive]}>📷 Scan QR</Text>
-          </Pressable>
         </View>
 
         {/* Tab 1: Upload Photo */}
@@ -692,58 +517,6 @@ export const VerificationScreen = ({ navigation, theme }) => {
           </Card>
         )}
 
-        {/* Tab 3: Scan QR Code & Upload from Gallery */}
-        {activeTab === 'qrScan' && (
-          <Card theme={theme}>
-            <Text style={styles.qrHintText}>Point camera at the AURA Proof Card QR Code</Text>
-            {hasCameraPermission === true ? (
-              <View style={styles.cameraScannerContainer}>
-                <CameraView
-                  style={{ flex: 1 }}
-                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-                  onBarcodeScanned={handleBarcodeScanned}
-                />
-              </View>
-            ) : (
-              <Button
-                title="Grant Camera Permission to Scan QR"
-                onPress={requestCameraPermission}
-                variant="secondary"
-                size="medium"
-                theme={theme}
-                style={{ marginBottom: theme.spacing.md }}
-              />
-            )}
-
-            {/* Gallery QR Upload Button */}
-            <Pressable
-              onPress={handleGalleryQrUpload}
-              disabled={isDecodingQr || isVerifying}
-              style={({ pressed }) => [
-                styles.galleryQrButton,
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              {isDecodingQr ? (
-                <ActivityIndicator size="small" color={theme.colors.accent} />
-              ) : (
-                <Text style={{ fontSize: 18 }}>🖼️</Text>
-              )}
-              <Text style={styles.galleryQrButtonText}>
-                {isDecodingQr ? 'Decoding QR Code...' : 'Upload QR from Gallery'}
-              </Text>
-            </Pressable>
-
-            {qrScannedData ? (
-              <View style={styles.scannedBadge}>
-                <Text style={styles.scannedBadgeText}>
-                  Detected Proof ID: {qrScannedData}
-                </Text>
-              </View>
-            ) : null}
-          </Card>
-        )}
-
         {/* Protocol Checks Summary */}
         <SectionTitle title="A.U.R.A. PROTOCOL CHECKS" theme={theme} />
         <Card theme={theme}>
@@ -772,7 +545,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
           size="large"
           theme={theme}
           loading={isVerifying}
-          disabled={isVerifying || isDecodingQr}
+          disabled={isVerifying}
           style={{ marginTop: theme.spacing.lg }}
         />
       </View>

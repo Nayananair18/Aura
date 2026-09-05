@@ -1,9 +1,18 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
-import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
+
+const MediaLibrary = Platform.OS === 'web' 
+  ? null 
+  : (function() {
+      try {
+        return require('expo-media-library/legacy');
+      } catch (e) {
+        return require('expo-media-library');
+      }
+    })();
 
 // Local storage directory for captured photos
 const CAPTURE_DIRECTORY = `${FileSystem.documentDirectory}RealityProof/`;
@@ -185,9 +194,10 @@ export const pickFile = async () => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['image/*', 'video/*'],
+      copyToCacheDirectory: true,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets || result.assets.length === 0) {
       return null;
     }
 
@@ -232,13 +242,15 @@ export const pickImageFromGallery = async () => {
 
     const asset = result.assets[0];
     let base64 = asset.base64;
-    if (!base64 && asset.uri) {
-      base64 = await getFileAsBase64(asset.uri);
+    let finalUri = asset.uri;
+
+    if (!base64 && finalUri) {
+      base64 = await getFileAsBase64(finalUri);
     }
 
     return {
-      uri: asset.uri,
-      name: asset.fileName || `gallery_qr_${Date.now()}.jpg`,
+      uri: finalUri,
+      name: asset.fileName || `gallery_${Date.now()}.jpg`,
       size: asset.fileSize || 0,
       mimeType: asset.mimeType || 'image/jpeg',
       width: asset.width,
@@ -263,30 +275,42 @@ export const pickImageFromGallery = async () => {
 };
 
 /**
- * Get file contents as base64
+ * Get file contents as base64.
+ * Uses fetch() + FileReader which streams directly via React Native Android ContentResolver / iOS fetch,
+ * bypassing ExponentFileSystem native permission locks on DocumentPicker URIs.
  */
 export const getFileAsBase64 = async (fileUri) => {
   try {
-    if (Platform.OS === 'web') {
+    if (!fileUri) throw new Error('No file URI provided');
+
+    // Primary: fetch(fileUri) + FileReader (works for content://, file://, and DocumentPicker URIs on Android/iOS/Web)
+    try {
       const response = await fetch(fileUri);
       const blob = await response.blob();
-      return new Promise((resolve, reject) => {
+      return await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          const base64data = reader.result.split(',')[1];
-          resolve(base64data);
+          if (typeof reader.result === 'string') {
+            const base64data = reader.result.split(',')[1] || reader.result;
+            resolve(base64data);
+          } else {
+            reject(new Error('FileReader did not return string'));
+          }
         };
-        reader.onerror = reject;
+        reader.onerror = (err) => reject(err);
         reader.readAsDataURL(blob);
       });
+    } catch (fetchErr) {
+      console.warn('[FileService] fetch base64 failed, attempting FileSystem fallback:', fetchErr.message);
     }
 
+    // Secondary: FileSystem.readAsStringAsync fallback
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64',
     });
     return fileContent;
   } catch (error) {
-    console.error('Error reading file:', error);
+    console.error('Error reading file as base64:', error);
     throw error;
   }
 };
@@ -346,7 +370,7 @@ export const saveFile = async (fileUri, fileName) => {
  */
 export const saveToPhoneGallery = async (imageUri) => {
   try {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || !MediaLibrary) {
       console.log('[AURA Gallery] Web platform – gallery save not supported via MediaLibrary.');
       return { success: false, message: 'MediaLibrary gallery save is not supported on web' };
     }
@@ -357,12 +381,12 @@ export const saveToPhoneGallery = async (imageUri) => {
 
     let permStatus = 'denied';
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      const perm = await MediaLibrary.requestPermissionsAsync(false);
       permStatus = perm.status;
     } catch (pErr) {
       console.warn('[AURA Gallery] Permission request retry:', pErr.message);
       try {
-        const getPerm = await MediaLibrary.getPermissionsAsync(true);
+        const getPerm = await MediaLibrary.getPermissionsAsync(false);
         permStatus = getPerm.status;
       } catch (gErr) {
         permStatus = 'granted';
