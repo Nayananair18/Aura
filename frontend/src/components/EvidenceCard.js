@@ -21,7 +21,7 @@ const EVIDENCE_FIELDS = [
     id: 'camera_make',
     label: 'Camera Manufacturer',
     icon: '📷',
-    getValue: (fp) => fp?.make || null,
+    getValue: (fp) => fp?.make || fp?.Make || fp?.['{TIFF}']?.Make || null,
     isReal: (val) => !!val,
     realText: (val) => val,
     fakeText: () => 'MISSING',
@@ -32,7 +32,7 @@ const EVIDENCE_FIELDS = [
     id: 'camera_model',
     label: 'Camera Model',
     icon: '📱',
-    getValue: (fp) => fp?.model || null,
+    getValue: (fp) => fp?.model || fp?.Model || fp?.['{TIFF}']?.Model || null,
     isReal: (val) => !!val,
     realText: (val) => val,
     fakeText: () => 'MISSING',
@@ -43,7 +43,7 @@ const EVIDENCE_FIELDS = [
     id: 'shutter_speed',
     label: 'Shutter Speed',
     icon: '⚡',
-    getValue: (fp) => fp?.shutterSpeed ?? fp?.exposureTime ?? null,
+    getValue: (fp) => fp?.shutterSpeed ?? fp?.exposureTime ?? fp?.ExposureTime ?? fp?.ShutterSpeedValue ?? null,
     isReal: (val) => val != null,
     realText: (val) => {
       const s = parseFloat(val);
@@ -58,7 +58,7 @@ const EVIDENCE_FIELDS = [
     id: 'aperture',
     label: 'Aperture (f-stop)',
     icon: '🔍',
-    getValue: (fp) => fp?.aperture ?? fp?.fNumber ?? null,
+    getValue: (fp) => fp?.aperture ?? fp?.fNumber ?? fp?.FNumber ?? fp?.ApertureValue ?? null,
     isReal: (val) => val != null,
     realText: (val) => `f/${parseFloat(val).toFixed(1)}`,
     fakeText: () => 'MISSING',
@@ -69,7 +69,7 @@ const EVIDENCE_FIELDS = [
     id: 'iso',
     label: 'ISO Sensitivity',
     icon: '☀️',
-    getValue: (fp) => fp?.isoSpeedRating ?? fp?.iso ?? null,
+    getValue: (fp) => fp?.isoSpeedRating ?? fp?.isoSpeedRatings ?? fp?.ISOSpeedRatings ?? fp?.iso ?? fp?.ISO ?? null,
     isReal: (val) => val != null,
     realText: (val) => `ISO ${val}`,
     fakeText: () => 'MISSING',
@@ -80,14 +80,14 @@ const EVIDENCE_FIELDS = [
     id: 'focal_length',
     label: 'Focal Length',
     icon: '🔭',
-    getValue: (fp) => fp?.focalLength ?? null,
+    getValue: (fp) => fp?.focalLength ?? fp?.FocalLength ?? null,
     isReal: (val) => val != null,
     realText: (val) => `${parseFloat(val).toFixed(0)}mm`,
     fakeText: () => 'MISSING',
     weight: 'medium',
     explanation: 'Physical lenses embed their focal length in every shot. AI has no optics.',
   },
-    {
+  {
     id: 'gps',
     label: 'GPS Coordinates',
     icon: '📍',
@@ -103,13 +103,13 @@ const EVIDENCE_FIELDS = [
     weight: 'medium',
     explanation: 'Smartphone cameras embed GPS at capture. Coordinates verify physical spatiotemporal ground truth.',
   },
-    {
+  {
     id: 'software',
     label: 'Software Tag',
     icon: '💻',
-    getValue: (fp) => fp?.software || null,
+    getValue: (fp) => fp?.software || fp?.Software || null,
     isReal: (val) => {
-      if (!val || typeof val !== 'string' || val.trim() === '') return false; // Missing firmware string is NOT real
+      if (!val || typeof val !== 'string' || val.trim() === '') return false;
       const AI_TOOLS = [
         'stable diffusion', 'dall-e', 'dall·e', 'midjourney', 'adobe firefly',
         'dreamstudio', 'runway', 'novelai', 'automatic1111', 'comfyui',
@@ -127,7 +127,7 @@ const EVIDENCE_FIELDS = [
     id: 'exif_version',
     label: 'EXIF Version',
     icon: '🔐',
-    getValue: (fp) => fp?.exifVersion || null,
+    getValue: (fp) => fp?.exifVersion || fp?.ExifVersion || null,
     isReal: (val) => !!val,
     realText: (val) => `v${val}`,
     fakeText: () => 'MISSING',
@@ -197,13 +197,6 @@ const EvidenceRow = ({ field, fingerprint, isLast, theme }) => {
           </Text>
         </View>
 
-        {/* Weight badge */}
-        <View style={[styles.weightBadge, { backgroundColor: weightColor + '18', borderColor: weightColor }]}>
-          <Text style={[styles.weightText, { color: weightColor }]}>
-            {WEIGHT_LABEL[field.weight]}
-          </Text>
-        </View>
-
         <Text style={[styles.chevron, { color: colors.textMuted }]}>
           {expanded ? '▲' : '▼'}
         </Text>
@@ -254,9 +247,6 @@ const EvidenceSummary = ({ passed, total, theme }) => {
 
       {/* Verdict chips */}
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-        <View style={[styles.chip, { backgroundColor: '#22C55E18', borderColor: '#22C55E' }]}>
-          <Text style={[styles.chipText, { color: '#22C55E' }]}>✓ {passed} present</Text>
-        </View>
         {failedCount > 0 && (
           <View style={[styles.chip, { backgroundColor: '#EF444418', borderColor: '#EF4444' }]}>
             <Text style={[styles.chipText, { color: '#EF4444' }]}>✗ {failedCount} missing</Text>

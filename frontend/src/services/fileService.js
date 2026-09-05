@@ -1,9 +1,18 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
-import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
+
+const MediaLibrary = Platform.OS === 'web' 
+  ? null 
+  : (function() {
+      try {
+        return require('expo-media-library/legacy');
+      } catch (e) {
+        return require('expo-media-library');
+      }
+    })();
 
 // Local storage directory for captured photos
 const CAPTURE_DIRECTORY = `${FileSystem.documentDirectory}RealityProof/`;
@@ -346,7 +355,7 @@ export const saveFile = async (fileUri, fileName) => {
  */
 export const saveToPhoneGallery = async (imageUri) => {
   try {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || !MediaLibrary) {
       console.log('[AURA Gallery] Web platform – gallery save not supported via MediaLibrary.');
       return { success: false, message: 'MediaLibrary gallery save is not supported on web' };
     }
@@ -357,12 +366,12 @@ export const saveToPhoneGallery = async (imageUri) => {
 
     let permStatus = 'denied';
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      const perm = await MediaLibrary.requestPermissionsAsync(false);
       permStatus = perm.status;
     } catch (pErr) {
       console.warn('[AURA Gallery] Permission request retry:', pErr.message);
       try {
-        const getPerm = await MediaLibrary.getPermissionsAsync(true);
+        const getPerm = await MediaLibrary.getPermissionsAsync(false);
         permStatus = getPerm.status;
       } catch (gErr) {
         permStatus = 'granted';

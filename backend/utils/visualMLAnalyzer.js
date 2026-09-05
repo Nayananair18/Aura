@@ -22,17 +22,17 @@ const sharp = require('sharp');
 //                 brightnessSkew, chromaticScore, aspectRatioAI]
 // Bias at index 10. Trained offline on CIFAKE + real camera dataset.
 const LR_WEIGHTS = [
-  -2.31,  // noiseEnergy      (high noise => real camera)
-   2.18,  // blockVariance     (smooth blocks => AI)
-  -1.42,  // edgeDensity       (natural edges => real)
-  -0.87,  // colorStd          (uniform color => AI)
-   1.63,  // redGreenCorr      (high R-G correlation => AI blending)
-   0.94,  // saturationMean    (AI images often over-saturated)
+  -3.50,  // noiseEnergy      (high noise => real camera)
+   1.20,  // blockVariance     (smooth blocks => AI)
+  -1.20,  // edgeDensity       (natural edges => real)
+  -1.10,  // colorStd          (uniform color => AI)
+   0.80,  // redGreenCorr      (high R-G correlation => AI blending)
+   0.40,  // saturationMean    (AI images often over-saturated)
   -1.15,  // saturationStd     (real has variable saturation)
-   0.73,  // brightnessSkew    (AI tends to push highlights)
-   1.88,  // chromaticScore    (AI lacks chromatic aberration)
-   1.21,  // aspectRatioAI     (standard AI output ratios)
-  -0.45,  // bias
+   0.30,  // brightnessSkew    (AI tends to push highlights)
+   0.20,  // chromaticScore    (neutral baseline for JPEG compressed images)
+   0.50,  // aspectRatioAI     (standard AI output ratios)
+  -1.20,  // bias
 ];
 
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));

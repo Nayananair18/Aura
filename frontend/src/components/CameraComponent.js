@@ -80,7 +80,6 @@ export const CameraComponent = ({
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.95,
         exif: true,
-        skipProcessing: true, // MUST be true on Android to prevent EXIF stripping
       });
 
       setCapturePhase(null);
@@ -127,8 +126,10 @@ export const CameraComponent = ({
       <CameraView
         ref={cameraRef}
         style={styles.camera}
-        type="back"
+        facing="back"
+        mode="picture"
         onCameraReady={() => setIsReady(true)}
+        onMountError={(e) => console.error('[CameraComponent] Mount error:', e)}
       />
 
       {/* ─── Sensor-recording status overlay ─── */}
@@ -173,6 +174,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   camera: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
     ...StyleSheet.absoluteFillObject,
   },
   controls: {
