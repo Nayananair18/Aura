@@ -3,20 +3,21 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const resolveApiBaseUrl = () => {
-  const envUrl =
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
-    process.env.REACT_NATIVE_API_BASE_URL;
-
-  if (envUrl && envUrl.trim() !== '') return envUrl.trim();
-
+  // Dynamically resolve local IP from Metro server in development mode
   const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
-  if (hostUri) {
+  if (hostUri && __DEV__ && Platform.OS !== 'web') {
     const host = hostUri.split(':')[0];
     // If running in tunnel mode, host is non-numeric domain
     if (host && !host.includes('exp.direct') && !host.includes('ngrok')) {
       return `http://${host}:3001/api`;
     }
   }
+
+  const envUrl =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.REACT_NATIVE_API_BASE_URL;
+
+  if (envUrl && envUrl.trim() !== '') return envUrl.trim();
 
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:3001/api';
@@ -378,8 +379,8 @@ export const analyzeImageMetadata = async (base64Image, fileName, fileType, exif
     return response.data;
   } catch (error) {
     if (isNetworkError(error)) {
-      console.warn('[AURA API] Backend unreachable. Falling back to mock ML analysis.');
-      return mockAnalyzeMetadata(fileName);
+      console.warn('[AURA API] Backend ML endpoint unreachable. Skipping ML analysis.');
+      return { success: false, analysis: null };
     }
     // Non-fatal — return a graceful failure object instead of throwing
     console.error('[AURA API] ML analysis error:', error.message);

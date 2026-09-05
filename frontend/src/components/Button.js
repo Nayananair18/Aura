@@ -37,14 +37,14 @@ const getStyles = (theme, variant, size) => {
       borderRadius: 14,
     },
     medium: {
-      paddingVertical: 12,
-      paddingHorizontal: spacing.lg,
-      borderRadius: 12,
-    },
-    small: {
-      paddingVertical: 8,
+      paddingVertical: 10,
       paddingHorizontal: spacing.md,
       borderRadius: 10,
+    },
+    small: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 8,
     },
   };
 
@@ -98,6 +98,8 @@ const getStyles = (theme, variant, size) => {
     text: {
       ...typography.headline,
       color: v.text,
+      fontSize: size === 'small' ? 13 : size === 'medium' ? 15 : 17,
+      fontWeight: '600',
     },
   });
 };

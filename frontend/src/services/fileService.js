@@ -1,8 +1,19 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
+import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 import { generateHashFromFile } from './hashingService';
+
+const MediaLibrary = Platform.OS === 'web' 
+  ? null 
+  : (function() {
+      try {
+        return require('expo-media-library/legacy');
+      } catch (e) {
+        return require('expo-media-library');
+      }
+    })();
+
 // Local storage directory for captured photos
 const CAPTURE_DIRECTORY = `${FileSystem.documentDirectory}RealityProof/`;
 
@@ -178,9 +189,10 @@ export const pickFile = async () => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['image/*', 'video/*'],
+      copyToCacheDirectory: true,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets || result.assets.length === 0) {
       return null;
     }
 
@@ -199,30 +211,101 @@ export const pickFile = async () => {
 };
 
 /**
- * Get file contents as base64
+ * Pick an image from photo library / gallery with base64 and dimension support
+ */
+export const pickImageFromGallery = async () => {
+  try {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        console.warn('[AURA Gallery] Media library permission not explicitly granted, attempting picker...');
+      }
+    } catch (permErr) {
+      console.warn('[AURA Gallery] Media library permission error:', permErr.message);
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      return null;
+    }
+
+    const asset = result.assets[0];
+    let base64 = asset.base64;
+    let finalUri = asset.uri;
+
+    if (!base64 && finalUri) {
+      base64 = await getFileAsBase64(finalUri);
+    }
+
+    return {
+      uri: finalUri,
+      name: asset.fileName || `gallery_${Date.now()}.jpg`,
+      size: asset.fileSize || 0,
+      mimeType: asset.mimeType || 'image/jpeg',
+      width: asset.width,
+      height: asset.height,
+      base64,
+    };
+  } catch (error) {
+    console.error('Error picking image from gallery:', error);
+    // Fallback to DocumentPicker
+    try {
+      const docResult = await pickFile();
+      if (!docResult) return null;
+      const base64 = await getFileAsBase64(docResult.uri);
+      return {
+        ...docResult,
+        base64,
+      };
+    } catch (fallbackErr) {
+      throw error;
+    }
+  }
+};
+
+/**
+ * Get file contents as base64.
+ * Uses fetch() + FileReader which streams directly via React Native Android ContentResolver / iOS fetch,
+ * bypassing ExponentFileSystem native permission locks on DocumentPicker URIs.
  */
 export const getFileAsBase64 = async (fileUri) => {
   try {
-    if (Platform.OS === 'web') {
+    if (!fileUri) throw new Error('No file URI provided');
+
+    // Primary: fetch(fileUri) + FileReader (works for content://, file://, and DocumentPicker URIs on Android/iOS/Web)
+    try {
       const response = await fetch(fileUri);
       const blob = await response.blob();
-      return new Promise((resolve, reject) => {
+      return await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          const base64data = reader.result.split(',')[1];
-          resolve(base64data);
+          if (typeof reader.result === 'string') {
+            const base64data = reader.result.split(',')[1] || reader.result;
+            resolve(base64data);
+          } else {
+            reject(new Error('FileReader did not return string'));
+          }
         };
-        reader.onerror = reject;
+        reader.onerror = (err) => reject(err);
         reader.readAsDataURL(blob);
       });
+    } catch (fetchErr) {
+      console.warn('[FileService] fetch base64 failed, attempting FileSystem fallback:', fetchErr.message);
     }
 
+    // Secondary: FileSystem.readAsStringAsync fallback
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64',
     });
     return fileContent;
   } catch (error) {
-    console.error('Error reading file:', error);
+    console.error('Error reading file as base64:', error);
     throw error;
   }
 };
@@ -282,8 +365,8 @@ export const saveFile = async (fileUri, fileName) => {
  */
 export const saveToPhoneGallery = async (imageUri) => {
   try {
-    if (Platform.OS === 'web') {
-      console.log('[AURA Gallery] Web platform — gallery save not supported via MediaLibrary.');
+    if (Platform.OS === 'web' || !MediaLibrary) {
+      console.log('[AURA Gallery] Web platform – gallery save not supported via MediaLibrary.');
       return { success: false, message: 'MediaLibrary gallery save is not supported on web' };
     }
 
@@ -294,12 +377,12 @@ export const saveToPhoneGallery = async (imageUri) => {
     // 1. Request write-only permissions (prevents requesting unused AUDIO permissions on Android)
     let permStatus = 'denied';
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      const perm = await MediaLibrary.requestPermissionsAsync(false);
       permStatus = perm.status;
     } catch (pErr) {
       console.warn('[AURA Gallery] Permission request retry:', pErr.message);
       try {
-        const getPerm = await MediaLibrary.getPermissionsAsync(true);
+        const getPerm = await MediaLibrary.getPermissionsAsync(false);
         permStatus = getPerm.status;
       } catch (gErr) {
         permStatus = 'granted'; // Fallback for save-only mode

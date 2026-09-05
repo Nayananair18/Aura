@@ -11,8 +11,10 @@ const {
   calculateLightStats,
   analyzeSensorIntegrity,
   watermarkImage,
-} = require('../utils/crypto');
-const logger = require('../utils/logger');
+} = require("../utils/crypto");
+const logger = require("../utils/logger");
+const { saveToLedger } = require("../utils/ledgerStore");
+const { analyzeImageMetadata } = require("../utils/metadataAnalyzer");
 
 // Max base64 image size: ~8MB (covers a full 6MP JPEG at quality 95)
 const MAX_MEDIA_SIZE_BYTES = 8 * 1024 * 1024;
@@ -108,7 +110,66 @@ const generateAuthenticityProof = async (req, res) => {
     }
     
     // Hash the final image bytes
-    const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : null;
+    const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : proofHash;
+
+    const spatiotemporalData = {
+      location: sensorData.location || null,
+      timestamp: sensorData.timestamp || null,
+      capturedAt: metadata?.capturedAt || metadata?.timestamp || new Date().toISOString(),
+      deviceId: metadata?.deviceId || null,
+    };
+
+    // Run full pixel ML forensics and EXIF metadata extraction
+    let realMlAnalysis = null;
+    if (targetBuffer) {
+      try {
+        const mlRes = await analyzeImageMetadata(targetBuffer, metadata?.exif || metadata?.photoData?.exif);
+        if (mlRes) {
+          const { metadataFingerprint, ...restMl } = mlRes;
+          realMlAnalysis = {
+            ...restMl,
+            metadataFingerprint,
+            fileName: metadata?.fileName || 'capture.jpg',
+            isMock: false,
+          };
+        }
+      } catch (mlErr) {
+        logger.warn("[Proof] Real ML analysis error: " + mlErr.message);
+      }
+    }
+
+    // Standardized Proof Document for MongoDB and In-Memory Ledger
+    const proofDoc = {
+      proofId,
+      sha256Hash: finalImageHash || proofHash,
+      imageHash: finalImageHash,
+      hash: proofHash,
+      metadata: realMlAnalysis?.metadataFingerprint || metadata?.exif || metadata || {},
+      metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      mlAnalysis: realMlAnalysis,
+      sensorMetrics: sensorData,
+      sensorData,
+      sensorStats,
+      imageScreenStats,
+      spatiotemporalData,
+      confidence: overallConfidence,
+      integrityScore,
+      aiProbability,
+      classification: finalClassification,
+      status: finalStatus,
+      auraFlag: finalAuraFlag,
+      isRecaptured,
+      failureReason,
+      screenDefensePassed,
+      sensorsPassed,
+      isVerified: !isRecaptured,
+      timestamp: new Date(),
+      imageData: watermarkedImage,
+    };
+
+    // 1. Save to in-memory ledger cache (guaranteed instant availability)
+    saveToLedger(proofId, proofDoc);
 
     // Persist to MongoDB if available
     let persistedToDb = false;
@@ -153,8 +214,27 @@ const generateAuthenticityProof = async (req, res) => {
       sensorValidation,
       sensorValidationStatus: overallConfidence >= 70 ? 'passed' : 'failed', // For legacy frontend check
       sensorStats,
-      sensorConfidence,
-      integrityAnalysis,
+      sensorMetrics: sensorData,
+      imageScreenStats,
+      spatiotemporalData,
+      mlAnalysis: realMlAnalysis,
+      metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
+      integrityAnalysis: {
+        ...sensorResult,
+        isRecaptured,
+        screenDefensePassed,
+        auraFlag: finalAuraFlag,
+        overallScore: integrityScore,
+        aiProbability,
+        classification: finalClassification,
+        failureReason,
+      },
+      isRecaptured,
+      failureReason,
+      screenDefensePassed,
+      sensorsPassed,
+      isVerified: !isRecaptured,
       sensorsUsed: validSensors,
       totalSensors: 6,
       timestamp: new Date().toISOString(),

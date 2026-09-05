@@ -1,48 +1,48 @@
 
 export const colors = {
-  // Light Theme
+  // Light System Theme
   light: {
-    primary: '#0A0A0A',
+    primary: '#0F172A',
+    accent: '#4F46E5',
+    accentLight: '#6366F1',
+    background: '#F8FAFC',
+    surface: '#F1F5F9',
+    card: '#FFFFFF',
+    text: '#0F172A',
+    textSecondary: '#475569',
+    textMuted: '#94A3B8',
+    border: '#E2E8F0',
+    divider: '#E2E8F0',
+
+    // Standard Status
+    authentic: '#22C55E',
+    tampered: '#EF4444',
+    warning: '#F59E0B',
+    info: '#4F46E5',
+    success: '#22C55E',
+    error: '#EF4444',
+  },
+
+  // Dark System Theme
+  dark: {
+    primary: '#F8FAFC',
     accent: '#6366F1',
     accentLight: '#818CF8',
-    background: '#FAFAFA',
-    surface: '#F1F1F1',
-    card: '#FFFFFF',
-    text: '#0A0A0A',
-    textSecondary: '#71717A',
-    textMuted: '#A1A1AA',
-    border: '#E4E4E7',
-    divider: '#F4F4F5',
+    background: '#09090B',
+    surface: '#18181B',
+    card: '#1C1C1F',
+    text: '#F8FAFC',
+    textSecondary: '#A1A1AA',
+    textMuted: '#71717A',
+    border: '#27272A',
+    divider: '#27272A',
 
-    // Status
+    // Standard Status
     authentic: '#22C55E',
     tampered: '#EF4444',
     warning: '#F59E0B',
     info: '#6366F1',
     success: '#22C55E',
     error: '#EF4444',
-  },
-
-  // Dark Theme
-  dark: {
-    primary: '#FAFAFA',
-    accent: '#818CF8',
-    accentLight: '#A5B4FC',
-    background: '#09090B',
-    surface: '#18181B',
-    card: '#1C1C1F',
-    text: '#FAFAFA',
-    textSecondary: '#A1A1AA',
-    textMuted: '#71717A',
-    border: '#27272A',
-    divider: '#1E1E21',
-
-    // Status
-    authentic: '#22C55E',
-    tampered: '#F87171',
-    warning: '#FBBF24',
-    info: '#818CF8',
-    success: '#22C55E',
-    error: '#F87171',
   },
 };

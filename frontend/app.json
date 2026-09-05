@@ -10,12 +10,6 @@
     "orientation": "portrait",
     "icon": "./assets/authenticity.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/authenticity.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#09090B"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.aura.realityproof",
@@ -29,7 +23,6 @@
         "foregroundImage": "./assets/authenticity.png",
         "backgroundColor": "#09090B"
       },
-      "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -66,7 +59,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "A.U.R.A. needs your location to seal the capture coordinates."
         }
-      ]
+      ],
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {

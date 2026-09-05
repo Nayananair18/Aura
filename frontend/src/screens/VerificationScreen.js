@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Button } from '../components/Button';
 import { Card, SectionTitle } from '../components/Card';
 import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
-import { analyzeImageMetadata, storeVerificationResult, verifyMedia } from '../services/api';
+import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
 import * as FileService from '../services/fileService';
 
 // ── Helpers & Styles ──
@@ -143,22 +142,6 @@ const getStyles = (theme) => {
       marginBottom: spacing.md,
     },
 
-    // QR Camera
-    cameraScannerContainer: {
-      height: 220,
-      borderRadius: 16,
-      overflow: 'hidden',
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.accent,
-    },
-    qrHintText: {
-      ...typography.footnote,
-      color: colors.textMuted,
-      textAlign: 'center',
-      marginBottom: spacing.sm,
-    },
-
     // Checks
     checkRow: {
       flexDirection: 'row',
@@ -222,14 +205,12 @@ const CheckRow = ({ icon, label, desc, theme }) => {
 };
 
 export const VerificationScreen = ({ navigation, theme }) => {
-  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'proofId' | 'qrScan'
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'proofId'
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyStep, setVerifyStep] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
   const [proofIdInput, setProofIdInput] = useState('');
-  const [qrScannedData, setQrScannedData] = useState('');
   const [error, setError] = useState(null);
-  const [permission, requestPermission] = useCameraPermissions();
 
   const handleUpload = async () => {
     try {
@@ -269,26 +250,27 @@ export const VerificationScreen = ({ navigation, theme }) => {
     return clean.toUpperCase();
   };
 
-  const handleBarcodeScanned = ({ data }) => {
-    if (!data || isVerifying) return;
-    const extracted = extractProofId(data);
-    setQrScannedData(extracted);
-    Alert.alert('QR Code Scanned', `Extracted Proof ID: ${extracted}`, [
-      { text: 'Verify Now', onPress: () => handleUnifiedVerify({ proofId: extracted }) },
-      { text: 'Scan Again', style: 'cancel' }
-    ]);
-  };
-
   /**
    * Centralized Unified Verification Entry Point
    * Handles Upload, Proof ID, and QR Scanner methods seamlessly
    */
   const handleUnifiedVerify = async (overrides = {}) => {
-    const targetFile = overrides.uploadedFile || uploadedFile;
-    const targetProofId = overrides.proofId || (activeTab === 'proofId' ? extractProofId(proofIdInput) : (activeTab === 'qrScan' ? extractProofId(qrScannedData) : null));
+    const targetFile = overrides.uploadedFile || (activeTab === 'upload' ? uploadedFile : null);
+    
+    let rawProofId = overrides.proofId;
+    if (!rawProofId && activeTab === 'proofId') {
+      rawProofId = proofIdInput;
+    }
+
+    const cleanInputId = (rawProofId || '').trim().toUpperCase().replace(/\s+/g, '');
+    const targetProofId = extractProofId(cleanInputId);
+
+    if (activeTab === 'proofId' && cleanInputId) {
+      console.log('[MANUAL LOOKUP]', cleanInputId, '-> Normalized:', targetProofId);
+    }
 
     if (!targetFile && !targetProofId) {
-      Alert.alert('Required', 'Please pick an image file, enter a Proof ID, or scan a QR code.');
+      Alert.alert('Required', 'Please pick an image file or enter a Proof ID.');
       return;
     }
 
@@ -404,15 +386,6 @@ export const VerificationScreen = ({ navigation, theme }) => {
           >
             <Text style={[styles.tabText, activeTab === 'proofId' && styles.tabTextActive]}>🔢 Proof ID</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              setActiveTab('qrScan');
-              if (!permission?.granted) requestPermission();
-            }}
-            style={[styles.tabButton, activeTab === 'qrScan' && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, activeTab === 'qrScan' && styles.tabTextActive]}>📷 Scan QR</Text>
-          </Pressable>
         </View>
 
         {/* Tab 1: Upload Photo */}
@@ -466,36 +439,6 @@ export const VerificationScreen = ({ navigation, theme }) => {
           </Card>
         )}
 
-        {/* Tab 3: Scan QR Code */}
-        {activeTab === 'qrScan' && (
-          <Card theme={theme}>
-            <Text style={styles.qrHintText}>Point camera at the AURA Proof Card QR Code</Text>
-            {permission?.granted ? (
-              <View style={styles.cameraScannerContainer}>
-                <CameraView
-                  style={{ flex: 1 }}
-                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-                  onBarcodeScanned={handleBarcodeScanned}
-                />
-              </View>
-            ) : (
-              <Button
-                title="Grant Camera Permission to Scan QR"
-                onPress={requestPermission}
-                variant="secondary"
-                size="medium"
-                theme={theme}
-                style={{ marginBottom: theme.spacing.md }}
-              />
-            )}
-            {qrScannedData ? (
-              <Text style={[styles.inputLabel, { color: theme.colors.accent, textAlign: 'center' }]}>
-                Scanned Proof ID: {qrScannedData}
-              </Text>
-            ) : null}
-          </Card>
-        )}
-
         {/* Protocol Checks Summary */}
         <SectionTitle title="A.U.R.A. PROTOCOL CHECKS" theme={theme} />
         <Card theme={theme}>
@@ -523,17 +466,9 @@ export const VerificationScreen = ({ navigation, theme }) => {
           variant="primary"
           size="large"
           theme={theme}
-          style={{ marginTop: theme.spacing.md }}
-          disabled={isVerifying || (activeTab === 'upload' && !uploadedFile) || (activeTab === 'proofId' && !proofIdInput) || (activeTab === 'qrScan' && !qrScannedData)}
-        />
-        <Button
-          title="Cancel"
-          onPress={() => navigation.goBack()}
-          variant="ghost"
-          size="medium"
-          theme={theme}
-          style={{ marginTop: theme.spacing.xs }}
+          loading={isVerifying}
           disabled={isVerifying}
+          style={{ marginTop: theme.spacing.lg }}
         />
       </View>
     </ScrollView>
