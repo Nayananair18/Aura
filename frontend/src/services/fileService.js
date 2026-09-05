@@ -188,22 +188,59 @@ export const clearLocalStorage = async () => {
 };
 
 /**
+ * Helper to ensure a file URI is readable on Android scoped storage
+ */
+const ensureReadableFileUri = async (fileUri) => {
+  if (Platform.OS === 'web' || !fileUri) return fileUri;
+
+  const filename = fileUri.split('/').pop() || `temp_${Date.now()}.jpg`;
+  const destinationUri = `${FileSystem.cacheDirectory}aura_input_${filename}`;
+
+  try {
+    await FileSystem.copyAsync({
+      from: fileUri,
+      to: destinationUri,
+    });
+    return destinationUri;
+  } catch (copyError) {
+    console.warn('[FileService] Copy fallback warning:', copyError.message);
+    return fileUri;
+  }
+};
+
+/**
  * Pick a file from device storage
  */
 export const pickFile = async () => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['image/*', 'video/*'],
+      copyToCacheDirectory: true,
     });
 
-    if (result.canceled) {
+    if (result.canceled || !result.assets || result.assets.length === 0) {
       return null;
     }
 
     const file = result.assets[0];
 
+    // Ensure the returned URI is copied to app cache so it's guaranteed readable on Android
+    let finalUri = file.uri;
+    if (Platform.OS === 'android') {
+      try {
+        const cachedUri = `${FileSystem.cacheDirectory}picked_${Date.now()}_${file.name || 'image.jpg'}`;
+        await FileSystem.copyAsync({
+          from: file.uri,
+          to: cachedUri,
+        });
+        finalUri = cachedUri;
+      } catch (copyErr) {
+        console.warn('[pickFile] Android cache copy warning:', copyErr.message);
+      }
+    }
+
     return {
-      uri: file.uri,
+      uri: finalUri,
       name: file.name,
       size: file.size,
       mimeType: file.mimeType,
@@ -241,12 +278,18 @@ export const pickImageFromGallery = async () => {
 
     const asset = result.assets[0];
     let base64 = asset.base64;
-    if (!base64 && asset.uri) {
-      base64 = await getFileAsBase64(asset.uri);
+    let finalUri = asset.uri;
+
+    if (Platform.OS === 'android' && asset.uri) {
+      finalUri = await ensureReadableFileUri(asset.uri);
+    }
+
+    if (!base64 && finalUri) {
+      base64 = await getFileAsBase64(finalUri);
     }
 
     return {
-      uri: asset.uri,
+      uri: finalUri,
       name: asset.fileName || `gallery_qr_${Date.now()}.jpg`,
       size: asset.fileSize || 0,
       mimeType: asset.mimeType || 'image/jpeg',
@@ -290,10 +333,22 @@ export const getFileAsBase64 = async (fileUri) => {
       });
     }
 
-    const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: 'base64',
-    });
-    return fileContent;
+    let targetUri = fileUri;
+    try {
+      const fileContent = await FileSystem.readAsStringAsync(targetUri, {
+        encoding: 'base64',
+      });
+      return fileContent;
+    } catch (readErr) {
+      // If direct read fails (e.g. Android DocumentPicker unreadable location),
+      // copy to FileSystem.cacheDirectory and retry read
+      console.warn('[FileService] Direct read failed, copying file to cache:', readErr.message);
+      targetUri = await ensureReadableFileUri(fileUri);
+      const fileContent = await FileSystem.readAsStringAsync(targetUri, {
+        encoding: 'base64',
+      });
+      return fileContent;
+    }
   } catch (error) {
     console.error('Error reading file:', error);
     throw error;
