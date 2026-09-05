@@ -1,4 +1,4 @@
-import { Camera, CameraView } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -12,10 +12,10 @@ export const CameraComponent = ({
   onPermissionDenied,
 }) => {
   const cameraRef = useRef(null);
-  const [hasPermission, setHasPermission] = useState(null);
+  const [permission, requestPermission] = useCameraPermissions();
   const [isReady, setIsReady] = useState(false);
 
-  // ─── Sensor-recording state ───
+  // ── Sensor-recording state ──
   const [capturePhase, setCapturePhase] = useState(null); // null | 'recording' | 'snapping'
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoop = useRef(null);
@@ -23,19 +23,16 @@ export const CameraComponent = ({
   useEffect(() => {
     const ensurePermission = async () => {
       try {
-        const { status } = await Camera.requestCameraPermissionsAsync();
-        const granted = status === 'granted';
-        setHasPermission(granted);
-        if (!granted) {
+        const result = await requestPermission();
+        if (result?.status !== 'granted') {
           onPermissionDenied?.('Camera');
         }
       } catch (error) {
         console.error('Error requesting camera permission:', error);
-        setHasPermission(false);
       }
     };
     ensurePermission();
-  }, [onPermissionDenied]);
+  }, [onPermissionDenied, requestPermission]);
 
   // Start / stop the pulse animation
   useEffect(() => {
@@ -90,7 +87,7 @@ export const CameraComponent = ({
     }
   };
 
-  if (hasPermission === null) {
+  if (!permission) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
         <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>Requesting permission...</Text>
@@ -98,7 +95,7 @@ export const CameraComponent = ({
     );
   }
 
-  if (hasPermission === false) {
+  if (!permission.granted) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
         <Text style={{ color: theme.colors.error, fontSize: 14 }}>Camera access denied</Text>
@@ -106,10 +103,10 @@ export const CameraComponent = ({
     );
   }
 
-  // ─── Status overlay config ───
+  // ── Status overlay config ──
   const statusConfig = {
     recording: {
-      label: '🔬 Recording Sensors…',
+      label: '⚡ Recording Sensors…',
       dot: theme.colors.warning ?? '#F59E0B',
       bg: 'rgba(245,158,11,0.18)',
     },
@@ -132,7 +129,7 @@ export const CameraComponent = ({
         onMountError={(e) => console.error('[CameraComponent] Mount error:', e)}
       />
 
-      {/* ─── Sensor-recording status overlay ─── */}
+      {/* ── Sensor-recording status overlay ── */}
       {status && (
         <View style={[styles.statusOverlay, { backgroundColor: status.bg }]}>
           <Animated.View
@@ -145,7 +142,7 @@ export const CameraComponent = ({
         </View>
       )}
 
-      {/* ─── Shutter button ─── */}
+      {/* ── Shutter button ── */}
       {isCaptureActive && isReady && (
         <View style={styles.controls}>
           <Pressable
@@ -200,7 +197,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // ─── Sensor-recording overlay ───
+  // ── Sensor-recording overlay ──
   statusOverlay: {
     position: 'absolute',
     top: 16,
@@ -211,6 +208,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 20,
+    // semi-transparent pill
     backdropFilter: 'blur(8px)',
   },
   statusDot: {

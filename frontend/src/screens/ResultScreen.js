@@ -9,7 +9,7 @@ import { QrCode } from '../components/QrCode';
 import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
 
-// ─── Sub-components & Helpers ───
+// ── Sub-components & Helpers ──
 
 const getStyles = (theme) => {
   const { colors, spacing, typography } = theme;
@@ -213,14 +213,14 @@ const getStyles = (theme) => {
 };
 
 const DefenseRow = ({ label, status, details, theme }) => {
-  const { colors } = theme;
+  const { colors, spacing, typography } = theme;
   const styles = getStyles(theme);
   return (
     <View style={styles.defenseRow}>
       <View style={styles.defenseHeader}>
-        <View style={[styles.validationDot, { backgroundColor: status ? (colors.authentic || '#00FF9D') : (colors.error || '#EF4444') }]} />
+        <View style={[styles.validationDot, { backgroundColor: status ? colors.authentic : colors.error }]} />
         <Text style={styles.validationLabel}>{label}</Text>
-        <Text style={[styles.validationStatus, { color: status ? (colors.authentic || '#00FF9D') : (colors.error || '#EF4444') }]}>
+        <Text style={[styles.validationStatus, { color: status ? colors.authentic : colors.error }]}>
           {status ? 'PASSED' : 'FAILED'}
         </Text>
       </View>
@@ -288,7 +288,7 @@ const renderSensorAnalysis = (sensorData, theme) => {
     : [];
 
   const lightPoints = Array.isArray(sensorData.light)
-    ? sensorData.light.map(r => (r && typeof r === 'object' && r.lux != null ? Number(r.lux) : Number(r) || 0)).filter(Number.isFinite)
+    ? sensorData.light.map(r => (r && typeof r === 'object' && r.lux != null ? Number(r.lux) || 0 : Number(r) || 0)).filter(Number.isFinite)
     : [];
 
   if (accelPoints.length < 2 && gyroPoints.length < 2 && magPoints.length < 2 && lightPoints.length < 2) return null;
@@ -351,7 +351,7 @@ const renderSensorAnalysis = (sensorData, theme) => {
 export const ResultScreen = ({ route, navigation, theme }) => {
   const params = route?.params || {};
   const {
-    status = 'verified',
+    status = 'authentic',
     verification = {},
     proof = {},
     sensorData = null,
@@ -362,7 +362,10 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     mlAnalysis = null,
   } = params;
 
+    // Differentiate between "Capture Mode" (brand new baseline) and "Verification Mode"
   const isCaptureMode = Boolean(params.isCaptureMode === true || verification.isCaptureMode === true);
+
+  // Resolve display filename
   const displayFileName = fileName || photoData?.name || metadata?.fileName || 'photo_capture.jpg';
   const physicalFingerprint = mlAnalysis?.metadataFingerprint || proof?.exif || metadata?.exif || photoData?.exif || proof?.metadata || metadata || {};
 
@@ -396,51 +399,51 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     screenCaptureByML
   );
 
-  // Sensor validation check
-  const sensorsPassed = !isRecaptured && 
-    params.sensorsPassed !== false && 
-    verification.sensorsPassed !== false && 
-    verification.sensorValidation !== 'failed' && 
-    verification.sensorValidationStatus !== 'failed';
-
-  const rawAuraFlag = params.auraFlag || verification.auraFlag || (status === 'verified' || status === 'authentic' ? 'GREEN' : null);
-  const isExternalUpload = Boolean(!isCaptureMode && !hashValidation.storedHash && (status === 'unverified' || rawAuraFlag === 'YELLOW'));
+  const hashValidation = verification.hashValidation || {};
+  const isHashMatch = Boolean(hashValidation.isValid && (hashValidation.matchPercentage ?? 0) > 0);
+  const hashValid = isCaptureMode ? true : isHashMatch;
+  const aiProbability = mlAnalysis?.aiProbability ?? 0;
+  const screenPassed = verification.screenDefense?.result === 'passed' || 
+    (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
+  const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
 
   // ─── Result Screen Banner Decision Engine ───
   let evaluatedFlag = 'GREEN';
 
-  if (isRecaptured) {
+  if (!isCaptureMode && !isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
     evaluatedFlag = 'RED';
-  } else if (rawAuraFlag === 'GREEN' || (hashMatchNum === 100 && sensorsPassed === true && !isRecaptured)) {
-    evaluatedFlag = 'GREEN';
-  } else if (rawAuraFlag === 'YELLOW' || isExternalUpload || status === 'unverified' || status === 'suspicious') {
+  } else if (!isCaptureMode && !isHashMatch) {
+    // Unregistered external upload without authentic ledger proof
+    evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
+  } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
+    evaluatedFlag = 'RED';
+  } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
+    // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
     evaluatedFlag = 'YELLOW';
-  } else if (rawAuraFlag === 'RED') {
-    evaluatedFlag = 'RED';
-  } else {
+  } else if (verification.auraFlag === 'GREEN' && screenPassed && physicsPassed && hasHardwareExif && aiProbability < 25 && hashValid) {
     evaluatedFlag = 'GREEN';
+  } else {
+    evaluatedFlag = 'YELLOW';
   }
 
   const isAuthentic = evaluatedFlag === 'GREEN';
   const isUncertain = evaluatedFlag === 'YELLOW';
   const isTampered = evaluatedFlag === 'RED';
 
-  const screenPassed = !isRecaptured && (verification.screenDefensePassed !== false && verification.screenDefense?.result !== 'failed');
-  const physicsPassed = isCaptureMode
-    ? Boolean(verification.physicsDefense?.motionPassed !== false)
-    : (isHashMatch ? Boolean(verification.physicsDefense?.motionPassed !== false) : false);
-
   const { colors } = theme;
   const styles = getStyles(theme);
 
-  const activeProofId = proof.proofId || proof.id || verification.proofId || 'AURA-VERIFIED';
+  const confidence = verification.confidence != null 
+    ? verification.confidence 
+    : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : 0.0));
+  const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
 
   const displayHashMatch = isCaptureMode
     ? '100% (Baseline Sealed)'
-    : (isHashMatch ? `${hashMatchNum}%` : '0% Match / Unregistered');
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0% Match / Unregistered');
   const statHashMatch = isCaptureMode
     ? '100%'
-    : (isHashMatch ? `${hashMatchNum}%` : '0%');
+    : (isHashMatch ? `${hashValidation.matchPercentage}%` : '0%');
 
   const handleSaveToGallery = async () => {
     if (!photoData?.uri) {
@@ -460,21 +463,18 @@ export const ResultScreen = ({ route, navigation, theme }) => {
       Alert.alert('Error', 'No image available to share');
       return;
     }
-
     try {
-      const shareUrl = `https://aura-app.com/verify/${activeProofId}`;
-      const message = `✨ AURA VERIFIED PHOTO\n\nProof ID: ${activeProofId}\nStatus: ${isAuthentic ? 'Authentic (Physics Verified)' : 'Unverified'}\nIntegrity Score: ${isAuthentic ? 98 : 0}%\nVerification URL: ${shareUrl}`;
-      
       await Share.share({
-        message,
+        title: 'A.U.R.A. Verified Image',
+        message: `🛡️ A.U.R.A. Verified Authentic Capture\nProof ID: ${activeProofId}\nVerify: https://aura-app.com/verify/${activeProofId}`,
         url: photoData.uri,
-        title: 'AURA Verified Photo',
       });
     } catch (err) {
-      console.warn('Share error:', err.message);
+      console.error('Error sharing image:', err.message);
     }
   };
 
+  // Status Badge visual configurations
   const badgeConfig = {
     GREEN: {
       icon: '✓',

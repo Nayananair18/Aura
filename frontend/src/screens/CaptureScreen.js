@@ -400,7 +400,6 @@ export const CaptureScreen = ({ navigation, theme }) => {
         const available = await SensorManagerClass.checkAvailability();
         setSensorAvailability(available);
         setSensorsReady(Boolean(available.accelerometer || available.gyroscope || available.magnetometer));
-        await SensorManager.startCollecting();
       } catch (err) {
         console.error('Error initializing sensors:', err);
         setError('Sensors not available on this device');
@@ -507,22 +506,12 @@ export const CaptureScreen = ({ navigation, theme }) => {
           ? analyzeImageMetadata(mlBase64, fileName, 'image/jpeg', enrichedExif)
           : Promise.resolve(null),
       ]);
-
-      console.log('[BACKEND CAPTURE RESPONSE]', JSON.stringify({
-        success: proofResponse?.success,
-        isRecaptured: proofResponse?.isRecaptured,
-        auraFlag: proofResponse?.auraFlag,
-        status: proofResponse?.status,
-        classification: proofResponse?.classification,
-        failureReason: proofResponse?.failureReason,
-        proofAuraFlag: proofResponse?.proof?.auraFlag,
-      }));
-
+      
       let finalPhotoUri = photo?.uri;
       let galleryResult = null;
-
+      
       if (proofResponse?.proof?.authenticatedImage) {
-        finalPhotoUri = 'data:image/jpeg;base64,' + proofResponse.proof.authenticatedImage;
+        finalPhotoUri = `data:image/jpeg;base64,${proofResponse.proof.authenticatedImage}`;
         try {
           galleryResult = await FileService.saveToPhoneGallery(finalPhotoUri);
           if (galleryResult?.success) {
@@ -534,58 +523,26 @@ export const CaptureScreen = ({ navigation, theme }) => {
       }
 
       const integrity = proofResponse?.proof?.integrityAnalysis || {};
-      const isRecaptured = Boolean(
-        proofResponse?.isRecaptured === true ||
-        proofResponse?.proof?.isRecaptured === true ||
-        proofResponse?.auraFlag === 'RED' ||
-        proofResponse?.status === 'tampered' ||
-        proofResponse?.proof?.auraFlag === 'RED' ||
-        proofResponse?.proof?.status === 'tampered' ||
-        integrity.isRecaptured === true
-      );
-
-      const screenDefensePassed = !isRecaptured;
-      const sensorsPassed = !isRecaptured;
-      const auraFlag = isRecaptured ? 'RED' : (proofResponse?.auraFlag || 'GREEN');
-      const status = isRecaptured ? 'tampered' : (proofResponse?.status || 'verified');
-      const classification = isRecaptured ? 'SCREEN_REPLAY' : (proofResponse?.classification || 'AUTHENTIC_CAMERA');
-
       const verification = {
         ...integrity,
-        proofId: proofResponse?.proof?.id || proofResponse?.proof?.proofId,
+        proofId: proofResponse?.proof?.id,
         isCaptureMode: true,
-        isRecaptured,
-        screenDefensePassed,
-        sensorsPassed,
-        screenDefense: {
-          ...(integrity.screenDefense || {}),
-          isRecaptured,
-          screenDefensePassed,
-          result: isRecaptured ? 'failed' : 'passed',
-          details: isRecaptured
-            ? (proofResponse?.failureReason || 'SECOND-COPY DETECTED (Screen Replay Photo)')
-            : (integrity.screenDefense?.details || 'Clean physical ambient capture verified'),
-        },
         hashValidation: {
           matchPercentage: 100,
           isValid: true,
           mode: 'capture',
           status: 'Sealed / Baseline Registered',
         },
-        sensorValidationStatus: !isRecaptured ? 'passed' : 'failed',
-        sensorValidation: !isRecaptured ? 'passed' : 'failed',
+        sensorValidationStatus: (integrity.overallScore ?? 0) >= 60 ? 'passed' : 'failed',
+        sensorValidation:       (integrity.overallScore ?? 0) >= 60 ? 'passed' : 'failed',
         sensorStats: proofResponse?.proof?.sensorStats || null,
-        confidence: isRecaptured ? 20.0 : (proofResponse?.overallConfidence ?? 99.7),
-        timestamp: proofResponse?.proof?.timestamp || new Date().toISOString(),
+        confidence:  proofResponse?.overallConfidence ?? integrity.overallScore ?? 99,
+        timestamp:   proofResponse?.proof?.timestamp || new Date().toISOString(),
         metadataConsistency: 'Consistent',
-        locationValid: integrity.locationValid ?? Boolean(loc?.latitude != null),
-        timestampValid: integrity.timestampValid ?? true,
-        duration: sensorData?.timestamp?.durationMs || 1000,
-        auraFlag,
-        status,
-        integrityScore: isRecaptured ? 25 : 98,
-        aiProbability: isRecaptured ? 0.85 : 0.02,
-        classification,
+        locationValid:   integrity.locationValid   ?? Boolean(loc?.latitude != null),
+        timestampValid:  integrity.timestampValid  ?? true,
+        duration:        sensorData?.timestamp?.durationMs || 1000,
+        auraFlag:        integrity.auraFlag || proofResponse?.proof?.integrityAnalysis?.auraFlag || 'GREEN',
       };
 
       setUploadProgress(100);
@@ -594,11 +551,8 @@ export const CaptureScreen = ({ navigation, theme }) => {
         proof: proofResponse?.proof || {},
         result: proofResponse || {},
         verification,
-        auraFlag,
-        hashMatch: 100,
-        sensorsPassed,
-        sensorData,
-        metadata,
+        sensorData, 
+        metadata, 
         photoData: { ...photo, uri: finalPhotoUri, name: fileName },
         fileName,
         mlAnalysis: proofResponse?.proof?.mlAnalysis || mlResponse?.analysis || null,

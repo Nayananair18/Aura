@@ -7,7 +7,7 @@ import { LoadingSpinner } from '../components/Indicators';
 import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
 import * as FileService from '../services/fileService';
 
-// ─── Helpers & Styles ───
+// ── Helpers & Styles ──
 
 const getStyles = (theme) => {
   const { colors, spacing, typography } = theme;
@@ -233,50 +233,26 @@ export const VerificationScreen = ({ navigation, theme }) => {
   };
 
   /**
-   * Helper to sanitize and normalize Proof ID from URL or raw string
-   * Uses broadened regex to capture full 4-block hex pattern (e.g. AURA-4555-B6F6-2449-D419)
+   * Helper to extract Proof ID from URL or raw string
    */
   const extractProofId = (text) => {
-    if (!text || typeof text !== 'string') return '';
-    let clean = text.trim();
+    if (!text) return '';
+    const clean = text.trim();
+    // Matches AURA-XXXX-XXXX-XXXX pattern
+    const auraMatch = clean.match(/AURA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}/i);
+    if (auraMatch) return auraMatch[0].toUpperCase();
+    
+    // Or extract last component if URL
     if (clean.includes('/verify/')) {
       const parts = clean.split('/verify/');
-      clean = parts[parts.length - 1].trim();
-    } else if (clean.includes('/')) {
-      const parts = clean.split('/');
-      clean = parts[parts.length - 1].trim();
+      return parts[parts.length - 1].trim().toUpperCase();
     }
-    
-    // Clean string of non-alphanumeric except hyphen
-    clean = clean.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
-
-    // 1. Broad 4-block standard hex format: AURA-HHHH-HHHH-HHHH-HHHH
-    const fourBlockAura = clean.match(/AURA-([A-F0-9]{4}-){3}[A-F0-9]{4}/i);
-    if (fourBlockAura) return fourBlockAura[0].toUpperCase();
-
-    // 2. Unprefixed 4-block hex format: HHHH-HHHH-HHHH-HHHH
-    const fourBlockRaw = clean.match(/^([A-F0-9]{4}-){3}[A-F0-9]{4}$/i);
-    if (fourBlockRaw) return `AURA-${fourBlockRaw[0].toUpperCase()}`;
-
-    // 3. Dynamic block matching
-    const multiBlockAura = clean.match(/AURA-([A-Za-z0-9]{4}-)+[A-Za-z0-9]{4}/i);
-    if (multiBlockAura) return multiBlockAura[0].toUpperCase();
-
-    // 4. Any AURA- prefix match
-    const anyAura = clean.match(/AURA-[A-Za-z0-9_-]+/i);
-    if (anyAura) return anyAura[0].toUpperCase();
-
-    // 5. Fallback for raw unprefixed manual string
-    if (clean.length >= 8 && !clean.startsWith('AURA-')) {
-      return `AURA-${clean}`;
-    }
-
-    return clean;
+    return clean.toUpperCase();
   };
 
   /**
    * Centralized Unified Verification Entry Point
-   * Handles Upload, Proof ID, and QR Scanner/Gallery methods seamlessly
+   * Handles Upload, Proof ID, and QR Scanner methods seamlessly
    */
   const handleUnifiedVerify = async (overrides = {}) => {
     const targetFile = overrides.uploadedFile || (activeTab === 'upload' ? uploadedFile : null);
@@ -302,47 +278,10 @@ export const VerificationScreen = ({ navigation, theme }) => {
       setIsVerifying(true);
       setError(null);
 
-      // Branch 1: Direct Proof ID Lookup
-      if (targetProofId && !targetFile) {
-        setVerifyStep('Looking up Proof ID in ledger...');
-        const result = await verifyProofId(targetProofId);
-
-        if (!result || result.success === false || result.proofFound === false || result.status === 404) {
-          setIsVerifying(false);
-          setVerifyStep('');
-          const msg = result?.message || `Proof ID "${targetProofId}" was not found in the ledger.`;
-          setError(msg);
-          Alert.alert('Proof Not Found', msg);
-          return;
-        }
-
-        const verification = result?.verification || result;
-        const proofData = result?.proof || verification?.proofDetails || { id: targetProofId, proofId: targetProofId };
-
-        navigation.navigate('Result', {
-          status: result.status || verification?.status || (result.auraFlag === 'GREEN' ? 'verified' : 'tampered'),
-          verification: verification,
-          proof: proofData,
-          auraFlag: result.auraFlag || verification?.auraFlag || 'GREEN',
-          hashMatch: result.hashMatch ?? verification?.hashMatch ?? 100,
-          sensorsPassed: result.sensorsPassed ?? verification?.sensorsPassed ?? true,
-          aiProbability: result.aiProbability ?? verification?.aiProbability ?? 0.02,
-          sensorData: verification?.sensorMetrics || proofData?.sensorData || proofData?.sensorMetrics || null,
-          fileHash: verification?.hashValidation?.storedHash || proofData?.imageHash || proofData?.sha256Hash || proofData?.hash,
-          fileName: targetProofId || 'AURA Proof Verification',
-          photoData: (proofData?.imageData || verification?.proofDetails?.imageData)
-            ? { uri: `data:image/jpeg;base64,${proofData?.imageData || verification?.proofDetails?.imageData}`, name: targetProofId } 
-            : null,
-          mlAnalysis: null,
-          isCaptureMode: false,
-        });
-        return;
-      }
-
-      // Branch 2: File Upload Verification
       let fileHash = null;
       let base64Image = null;
 
+      // Step 1: Hash uploaded file if present
       if (targetFile) {
         setVerifyStep('Computing cryptographic hash...');
         fileHash = await FileService.hashFile(targetFile.uri);
@@ -358,9 +297,10 @@ export const VerificationScreen = ({ navigation, theme }) => {
         }
       }
 
+      // Step 2: Run verification against AURA Backend
       setVerifyStep('Querying AURA Proof Ledger & verifying physics...');
       const metadataPayload = {
-        fileName: targetFile?.name || targetProofId || 'proof_verification.jpg',
+        fileName: targetFile?.name || 'shared_media.jpg',
         fileType: targetFile?.type || 'image/jpeg',
         fileSize: targetFile?.fullSize || null,
         uploadedAt: new Date().toISOString(),
@@ -378,24 +318,13 @@ export const VerificationScreen = ({ navigation, theme }) => {
           : Promise.resolve({ success: false, analysis: null }),
       ]);
 
-      if (!result || result.success === false || result.proofFound === false || result.status === 404) {
-        setIsVerifying(false);
-        setVerifyStep('');
-        const msg = result?.message || `Verification failed: Media was not found in the ledger.`;
-        setError(msg);
-        Alert.alert('Proof Not Found', msg);
-        return;
-      }
-
-      const verification = result?.verification || result;
-      const proofData = result?.proof || verification?.proofDetails || { id: targetProofId };
-
+            // Step 3: Store verification result in ledger
       setVerifyStep('Recording verification result...');
-      if (fileHash || verification?.proofId) {
+      if (fileHash || result.verification?.proofId) {
         try {
           await storeVerificationResult(
-            fileHash || verification?.proofId,
-            verification,
+            fileHash || result.verification?.proofId,
+            result.verification || result,
             metadataPayload
           );
         } catch (storeErr) {
@@ -403,28 +332,21 @@ export const VerificationScreen = ({ navigation, theme }) => {
         }
       }
 
+            // Step 4: Navigate to ResultScreen
       navigation.navigate('Result', {
-        status: result.status || verification?.status || (result.auraFlag === 'GREEN' ? 'verified' : (verification?.auraFlag === 'YELLOW' ? 'unverified' : 'tampered')),
-        verification: verification,
-        proof: proofData,
-        auraFlag: result.auraFlag || verification?.auraFlag || 'GREEN',
-        hashMatch: result.hashMatch ?? verification?.hashMatch ?? (result.status === 'verified' || result.status === 'authentic' ? 100 : 0),
-        sensorsPassed: result.sensorsPassed ?? verification?.sensorsPassed ?? true,
-        aiProbability: result.aiProbability ?? verification?.aiProbability ?? (mlResponse?.analysis?.aiProbability ?? 0.02),
-        sensorData: verification?.sensorMetrics || proofData?.sensorData || null,
-        fileHash: fileHash || verification?.hashValidation?.storedHash || proofData?.imageHash || proofData?.hash,
-        fileName: targetFile?.name || targetProofId || 'AURA Proof Verification',
-        photoData: (proofData?.imageData || verification?.proofDetails?.imageData)
-          ? { uri: `data:image/jpeg;base64,${proofData?.imageData || verification?.proofDetails?.imageData}`, name: targetProofId || 'Verified Capture' } 
-          : (targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null),
-        mlAnalysis: mlResponse?.analysis || verification?.mlAnalysis || null,
+        status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : (result.verification?.auraFlag === 'YELLOW' ? 'unverified' : 'tampered')),
+        verification: result.verification,
+        proof: result.verification?.proofDetails || { id: targetProofId },
+        fileHash: fileHash || result.verification?.hashValidation?.storedHash,
+        fileName: targetFile?.name || targetProofId || 'Shared Media',
+        photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
+        mlAnalysis: mlResponse?.analysis || null,
         isCaptureMode: false,
       });
     } catch (err) {
       console.error('Error verifying media:', err);
-      const errMsg = err?.response?.data?.message || err?.message || 'Verification failed. Please try again.';
-      setError(errMsg);
-      Alert.alert('Verification Failed', errMsg);
+      setError('Verification failed. Please try again.');
+      Alert.alert('Verification Failed', err.message || 'Could not verify media proof.');
     } finally {
       setIsVerifying(false);
       setVerifyStep('');
@@ -462,7 +384,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
             onPress={() => setActiveTab('proofId')}
             style={[styles.tabButton, activeTab === 'proofId' && styles.tabActive]}
           >
-            <Text style={[styles.tabText, activeTab === 'proofId' && styles.tabTextActive]}>🔑 Proof ID</Text>
+            <Text style={[styles.tabText, activeTab === 'proofId' && styles.tabTextActive]}>🔢 Proof ID</Text>
           </Pressable>
         </View>
 
@@ -490,7 +412,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
               </View>
             ) : (
               <View style={styles.uploadPlaceholder}>
-                <Text style={styles.uploadIcon}>📷</Text>
+                <Text style={styles.uploadIcon}>🛡️</Text>
                 <Text style={styles.uploadTitle}>Verify Photo</Text>
                 <Text style={styles.uploadHint}>Upload photo to validate A.U.R.A. seal</Text>
               </View>
@@ -504,7 +426,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
             <Text style={styles.inputLabel}>ENTER AURA PROOF ID</Text>
             <TextInput
               style={styles.textInput}
-              placeholder="e.g. AURA-4555-B6F6-2449-D419"
+              placeholder="e.g. AURA-8F9A-2B4C-71D2"
               placeholderTextColor={theme.colors.textMuted}
               value={proofIdInput}
               onChangeText={(txt) => setProofIdInput(txt.toUpperCase())}
@@ -512,7 +434,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
               autoCorrect={false}
             />
             <Text style={styles.uploadHint}>
-              Enter the Proof ID from the lower banner of any shared AURA photo.
+              Enter the 16-character Proof ID from the lower banner of any shared AURA photo.
             </Text>
           </Card>
         )}
@@ -520,9 +442,9 @@ export const VerificationScreen = ({ navigation, theme }) => {
         {/* Protocol Checks Summary */}
         <SectionTitle title="A.U.R.A. PROTOCOL CHECKS" theme={theme} />
         <Card theme={theme}>
-          <CheckRow icon="🔬" label="Environmental Physics" desc="Check light/magnetic consistency" theme={theme} />
+          <CheckRow icon="⚛️" label="Environmental Physics" desc="Check light/magnetic consistency" theme={theme} />
           <View style={styles.divider} />
-          <CheckRow icon="⏱️" label="Spatiotemporal Seal" desc="Verify capture location and time" theme={theme} />
+          <CheckRow icon="🌌" label="Spatiotemporal Seal" desc="Verify capture location and time" theme={theme} />
           <View style={styles.divider} />
           <CheckRow icon="🔐" label="Cryptographic Match" desc="Validate SHA-256 seal integrity" theme={theme} />
         </Card>
@@ -539,7 +461,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
 
         {/* Actions */}
         <Button
-          title={isVerifying ? 'Verifying...' : 'Verify Media Authenticity'}
+          title="Verify Authenticity"
           onPress={() => handleUnifiedVerify()}
           variant="primary"
           size="large"
