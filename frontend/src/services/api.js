@@ -98,13 +98,14 @@ export const generateAuthenticityProof = async (mediaData, sensorData, metadata)
 /**
  * Verify media authenticity
  */
-export const verifyMedia = async (fileHash, metadata, uploadedMediaHash, proofId = null) => {
+export const verifyMedia = async (fileHash, metadata, uploadedMediaHash, proofId = null, image = null) => {
   try {
     const response = await apiClient.post('/media/verify', {
       fileHash,
       metadata,
       uploadedMediaHash,
       proofId,
+      image,
       timestamp: new Date().toISOString(),
     });
 
