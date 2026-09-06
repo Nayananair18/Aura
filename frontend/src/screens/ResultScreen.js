@@ -5,6 +5,7 @@ import { Card, MetadataItem, SectionTitle } from '../components/Card';
 import { EvidenceCard } from '../components/EvidenceCard';
 import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
+import { GroqScoreCard } from '../components/GroqScoreCard';
 import { QrCode } from '../components/QrCode';
 import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
@@ -360,7 +361,10 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     photoData = null,
     metadata = {},
     mlAnalysis = null,
+    groqAnalysis = null,
   } = params;
+
+  const resolvedGroq = groqAnalysis || params.groq || proof?.groq || mlAnalysis?.groq || null;
 
     // Differentiate between "Capture Mode" (brand new baseline) and "Verification Mode"
   const isCaptureMode = Boolean(params.isCaptureMode === true || verification.isCaptureMode === true);
@@ -374,13 +378,15 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   const hashMatchNum = rawHashMatch != null ? Number(rawHashMatch) : (isCaptureMode ? 100 : (hashValidation.isValid ? 100 : 0));
   const isHashMatch = isCaptureMode ? true : (hashMatchNum === 100 || Boolean(hashValidation.isValid));
 
-  // Detect screen capture from ML analysis classification
+  // Detect screen capture from ML analysis classification or high screen score
   const screenCaptureByML = Boolean(
     mlAnalysis?.classification === 'SCREEN_RECAPTURE' ||
-    mlAnalysis?.classification === 'SCREEN_REPLAY'
+    mlAnalysis?.classification === 'SCREEN_REPLAY' ||
+    (mlAnalysis?.screenScore ?? 0) >= 0.50 ||
+    (mlAnalysis?.screenScore ?? 0) >= 50
   );
 
-  // Replay check: True if flagged by sensor telemetry OR ML visual analysis
+  // Replay check: True if flagged by sensor telemetry, ML visual analysis, or Groq analysis
   const isRecaptured = Boolean(
     params.isRecaptured === true ||
     params.auraFlag === 'RED' ||
@@ -396,23 +402,33 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     proof.isRecaptured === true ||
     proof.auraFlag === 'RED' ||
     proof.status === 'tampered' ||
-    screenCaptureByML
+    screenCaptureByML ||
+    resolvedGroq?.screenReplay?.isScreenReplay === true
   );
 
-  const hashValidation = verification.hashValidation || {};
-  const isHashMatch = Boolean(hashValidation.isValid && (hashValidation.matchPercentage ?? 0) > 0);
+  const isScreenReplayAttack = isRecaptured || screenCaptureByML || Boolean(resolvedGroq?.screenReplay?.isScreenReplay);
+
   const hashValid = isCaptureMode ? true : isHashMatch;
   const aiProbability = mlAnalysis?.aiProbability ?? 0;
   const screenPassed = verification.screenDefense?.result === 'passed' || 
     (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
   const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
+  const hasHardwareExif = Boolean(
+    mlAnalysis?.hasHardwareExif ??
+    (physicalFingerprint?.Make || physicalFingerprint?.Model || physicalFingerprint?.ExposureTime || physicalFingerprint?.FNumber)
+  );
 
   // ─── Result Screen Banner Decision Engine ───
   let evaluatedFlag = 'GREEN';
 
-  if (!isCaptureMode && !isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
+  // PRIORITY 1: Screen replay attack, tampered status, high AI probability, or failed screen/physics defenses trigger RED flag regardless of capture mode
+  if (isScreenReplayAttack || status === 'tampered' || aiProbability >= 70 || screenPassed === false || physicsPassed === false) {
     evaluatedFlag = 'RED';
-  } else if (!isCaptureMode && !isHashMatch) {
+  } else if (isCaptureMode) {
+    evaluatedFlag = 'GREEN';
+  } else if (!isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
+    evaluatedFlag = 'RED';
+  } else if (!isHashMatch) {
     // Unregistered external upload without authentic ledger proof
     evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
   } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
@@ -420,10 +436,8 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
     // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
     evaluatedFlag = 'YELLOW';
-  } else if (verification.auraFlag === 'GREEN' && screenPassed && physicsPassed && hasHardwareExif && aiProbability < 25 && hashValid) {
-    evaluatedFlag = 'GREEN';
   } else {
-    evaluatedFlag = 'YELLOW';
+    evaluatedFlag = 'GREEN';
   }
 
   const isAuthentic = evaluatedFlag === 'GREEN';
@@ -539,6 +553,14 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           <View style={styles.sectionBlock}>
             <SectionTitle title="AI DETECTION ANALYSIS" theme={theme} />
             <MLScoreCard analysis={mlAnalysis} theme={theme} />
+          </View>
+        )}
+
+        {/* Groq VLM Analysis */}
+        {Boolean(resolvedGroq) && (
+          <View style={styles.sectionBlock}>
+            <SectionTitle title="GROQ VLM ANALYSIS" theme={theme} />
+            <GroqScoreCard groq={resolvedGroq} theme={theme} />
           </View>
         )}
 
