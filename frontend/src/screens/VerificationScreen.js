@@ -6,6 +6,7 @@ import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
 import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
 import * as FileService from '../services/fileService';
+import { prepareImageForVerification } from '../utils/watermark';
 
 // ── Helpers & Styles ──
 
@@ -281,14 +282,17 @@ export const VerificationScreen = ({ navigation, theme }) => {
       let fileHash = null;
       let base64Image = null;
 
-      // Step 1: Hash uploaded file if present
+      // Step 1: Hash uploaded file if present & compress image for ML/Groq analysis
       if (targetFile) {
         setVerifyStep('Computing cryptographic hash...');
         fileHash = await FileService.hashFile(targetFile.uri);
 
         setVerifyStep('Extracting metadata fingerprint...');
-        const FILE_SIZE_LIMIT_FOR_ML = 10 * 1024 * 1024;
-        if (targetFile.fullSize <= FILE_SIZE_LIMIT_FOR_ML) {
+        try {
+          const prep = await prepareImageForVerification(targetFile.uri);
+          base64Image = prep.base64;
+        } catch (prepErr) {
+          console.warn('[Verify] Compression fallback:', prepErr.message);
           try {
             base64Image = await FileService.getFileAsBase64(targetFile.uri);
           } catch (b64Err) {
@@ -314,8 +318,11 @@ export const VerificationScreen = ({ navigation, theme }) => {
           targetProofId
         ),
         base64Image
-          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type)
-          : Promise.resolve({ success: false, analysis: null }),
+          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type).catch((mlErr) => {
+              console.warn('[VerificationScreen] ML/Groq analysis warning:', mlErr.message);
+              return { success: false, analysis: null, groq: null };
+            })
+          : Promise.resolve({ success: false, analysis: null, groq: null }),
       ]);
 
             // Step 3: Store verification result in ledger
