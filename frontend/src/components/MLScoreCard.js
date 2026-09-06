@@ -165,7 +165,7 @@ const LoadingSkeleton = ({ theme }) => {
  * @param {boolean} props.isLoading  — show skeleton while pending
  * @param {object} props.theme
  */
-export const MLScoreCard = ({ analysis, isLoading, theme }) => {
+export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence = null, isLoading, theme }) => {
   const { colors, spacing, typography } = theme;
 
   if (isLoading) {
@@ -193,7 +193,17 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
   }
 
   let classKey = analysis.classification;
-  if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
+
+  // Override classification to SCREEN_RECAPTURE if screen recapture attack is detected across any layer
+  if (
+    isRecaptured ||
+    analysis.isRecaptured ||
+    analysis.screenCaptureByML ||
+    (analysis.screenScore ?? 0) >= 0.50 ||
+    (analysis.screenScore ?? 0) >= 50
+  ) {
+    classKey = 'SCREEN_RECAPTURE';
+  } else if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
     if (
       analysis.auraFlag === 'GREEN' ||
       analysis.status === 'verified' ||
@@ -222,12 +232,14 @@ export const MLScoreCard = ({ analysis, isLoading, theme }) => {
   const weightedRealScore = 100 - weightedAiRisk;
 
   let displayConfidence;
-  if (classKey === 'AUTHENTIC_CAMERA' || classKey === 'REAL' || classKey === 'REAL_CAMERA') {
+  if (isScreenCapture) {
+    displayConfidence = screenConfidence != null 
+      ? parseFloat(Number(screenConfidence).toFixed(1))
+      : (analysis.screenScore != null ? parseFloat(((analysis.screenScore <= 1 ? analysis.screenScore * 100 : analysis.screenScore)).toFixed(1)) : 95.0);
+  } else if (classKey === 'AUTHENTIC_CAMERA' || classKey === 'REAL' || classKey === 'REAL_CAMERA') {
     displayConfidence = parseFloat(weightedRealScore.toFixed(1));
   } else if (classKey === 'AI_GENERATED') {
     displayConfidence = parseFloat(weightedAiRisk.toFixed(1));
-  } else if (isScreenCapture) {
-    displayConfidence = parseFloat(((analysis.screenScore ?? 0) * 100).toFixed(1));
   } else {
     displayConfidence = analysis.confidence != null ? parseFloat(analysis.confidence.toFixed(1)) : parseFloat(weightedRealScore.toFixed(1));
   }

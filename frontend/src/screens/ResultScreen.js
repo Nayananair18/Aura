@@ -552,7 +552,12 @@ export const ResultScreen = ({ route, navigation, theme }) => {
         {mlAnalysis && (
           <View style={styles.sectionBlock}>
             <SectionTitle title="AI DETECTION ANALYSIS" theme={theme} />
-            <MLScoreCard analysis={mlAnalysis} theme={theme} />
+            <MLScoreCard 
+              analysis={mlAnalysis} 
+              isRecaptured={isScreenReplayAttack}
+              screenConfidence={resolvedGroq?.screenReplay?.confidence || (mlAnalysis?.screenScore ? (mlAnalysis.screenScore <= 1 ? mlAnalysis.screenScore * 100 : mlAnalysis.screenScore) : 95.0)}
+              theme={theme} 
+            />
           </View>
         )}
 
