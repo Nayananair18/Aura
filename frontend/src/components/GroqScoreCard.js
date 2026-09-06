@@ -1,10 +1,10 @@
 /**
  * GroqScoreCard — Displays Groq VLM Image Analysis & Screen Replay Detection
  *
- * Distinct separate analyzer UI section shown below the existing ML Analysis.
+ * Clean single unified card layout matching MLScoreCard structure.
  */
 
-import { Text, View, StyleSheet } from 'react-native';
+import { Text, View } from 'react-native';
 import { Card } from './Card';
 
 export const GroqScoreCard = ({ groq, isLoading, theme }) => {
@@ -50,28 +50,54 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
 
   const isReplay = screenReplay.isScreenReplay === true;
   const isAiGen = imageAnalysis.groqClassification === 'AI_GENERATED' || (imageAnalysis.aiProbability ?? 0) >= 50;
-  const isRealCam = !isAiGen && (imageAnalysis.groqClassification === 'REAL_CAMERA' || imageAnalysis.groqClassification === 'REAL_WORLD' || (imageAnalysis.aiProbability != null && imageAnalysis.aiProbability < 50));
-  
-  const classColor = isAiGen
+  const isRealCam = !isReplay && !isAiGen;
+
+  const classColor = isReplay || isAiGen
     ? colors.tampered || '#EF4444'
-    : isRealCam
-    ? colors.authentic || '#22C55E'
-    : colors.warning || '#F59E0B';
+    : colors.authentic || '#22C55E';
 
-  const classBadgeBg = isAiGen ? '#EF444420' : isRealCam ? '#22C55E20' : '#F59E0B20';
-  const classBadgeBorder = isAiGen ? '#EF4444' : isRealCam ? '#22C55E' : '#F59E0B';
-  const classEmoji = isAiGen ? '🤖' : isRealCam ? '📷' : '❓';
-  const classLabel = isAiGen ? 'AI GENERATED' : isRealCam ? 'REAL CAMERA' : (imageAnalysis.groqClassification || 'UNCERTAIN');
+  const classBadgeBg = isReplay || isAiGen ? '#EF444420' : '#22C55E20';
+  const classBadgeBorder = isReplay || isAiGen ? '#EF4444' : '#22C55E';
+  const classEmoji = isReplay ? '📺' : isAiGen ? '🤖' : '📷';
+  const classLabel = isReplay ? 'SCREEN REPLAY' : isAiGen ? 'AI GENERATED' : 'REAL CAMERA';
 
-  const replayColor = isReplay ? (colors.tampered || '#EF4444') : (colors.authentic || '#22C55E');
-  const replayBadgeBg = isReplay ? '#EF444420' : '#22C55E20';
-  const replayBadgeBorder = isReplay ? '#EF4444' : '#22C55E';
-  const replayEmoji = isReplay ? '📺' : '🌍';
-  const replayLabel = isReplay ? 'SCREEN REPLAY' : 'REAL WORLD';
+  const confidenceVal = isReplay
+    ? (screenReplay.confidence ?? 95)
+    : (imageAnalysis.confidence ?? 92);
+
+  const reasoningText = isReplay
+    ? (screenReplay.reasoning || imageAnalysis.reasoning)
+    : (imageAnalysis.reasoning || screenReplay.reasoning);
 
   return (
     <Card theme={theme}>
-      {/* ── Sub-header / Brand Pill ── */}
+      {/* ── Top Header Row: Status Badge & Confidence ── */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: classBadgeBg,
+            borderWidth: 1,
+            borderColor: classBadgeBorder,
+            borderRadius: 20,
+            paddingHorizontal: spacing.md,
+            paddingVertical: 5,
+            gap: 6,
+          }}
+        >
+          <Text style={{ fontSize: 13 }}>{classEmoji}</Text>
+          <Text style={{ ...typography.footnote, fontWeight: '700', color: classColor, letterSpacing: 0.5 }}>
+            {classLabel}
+          </Text>
+        </View>
+
+        <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600' }}>
+          {confidenceVal}% Confidence
+        </Text>
+      </View>
+
+      {/* ── Subtitle / Model Brand Tag ── */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ fontSize: 14 }}>⚡</Text>
@@ -84,67 +110,7 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
         </Text>
       </View>
 
-      {/* ── Image AI Analysis Section ── */}
-      <View
-        style={{
-          backgroundColor: colors.surface,
-          borderRadius: 12,
-          padding: spacing.md,
-          borderWidth: 1,
-          borderColor: colors.border,
-          marginBottom: spacing.md,
-        }}
-      >
-        {/* Classification & Confidence Row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: classBadgeBg,
-              borderWidth: 1,
-              borderColor: classBadgeBorder,
-              borderRadius: 16,
-              paddingHorizontal: spacing.sm + 4,
-              paddingVertical: 4,
-              gap: 6,
-            }}
-          >
-            <Text style={{ fontSize: 12 }}>{classEmoji}</Text>
-            <Text style={{ ...typography.caption, fontWeight: '700', color: classColor }}>
-              {classLabel}
-            </Text>
-          </View>
-
-          <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600' }}>
-            {imageAnalysis.confidence ?? 95}% Confidence
-          </Text>
-        </View>
-
-        {/* AI Generation Risk Stat */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.xs }}>
-          <Text style={{ ...typography.callout, color: colors.textSecondary }}>
-            AI Generation Risk:
-          </Text>
-          <Text style={{ ...typography.callout, color: classColor, fontWeight: '700' }}>
-            {imageAnalysis.aiProbability ?? 15}%
-          </Text>
-        </View>
-
-        {/* Reasoning */}
-        {Boolean(imageAnalysis.reasoning) && (
-          <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.divider }}>
-            <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600', marginBottom: 2 }}>
-              Reasoning:
-            </Text>
-            <Text style={{ ...typography.footnote, color: colors.text, lineHeight: 18 }}>
-              {imageAnalysis.reasoning}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* ── Screen Replay Analysis Section ── */}
+      {/* ── Single Unified Evaluation Container ── */}
       <View
         style={{
           backgroundColor: colors.surface,
@@ -155,44 +121,46 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
         }}
       >
         <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '700', letterSpacing: 0.8, marginBottom: spacing.xs }}>
-          SCREEN REPLAY DETECTION
+          VLM FORENSIC EVALUATION
         </Text>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: replayBadgeBg,
-              borderWidth: 1,
-              borderColor: replayBadgeBorder,
-              borderRadius: 16,
-              paddingHorizontal: spacing.sm + 4,
-              paddingVertical: 4,
-              gap: 6,
-            }}
-          >
-            <Text style={{ fontSize: 12 }}>{replayEmoji}</Text>
-            <Text style={{ ...typography.caption, fontWeight: '700', color: replayColor }}>
-              {replayLabel}
-            </Text>
+        {/* Metric 1: AI Generation Risk */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 14 }}>🤖</Text>
+            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>AI Generation Risk</Text>
           </View>
-
-          <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600' }}>
-            {screenReplay.confidence ?? 0}% Confidence
+          <Text style={{ ...typography.callout, color: isAiGen ? colors.error : colors.authentic, fontWeight: '700' }}>
+            {imageAnalysis.aiProbability ?? 15}% AI Risk
           </Text>
         </View>
 
-        {/* Reasoning */}
-        {Boolean(screenReplay.reasoning) && (
-          <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.divider }}>
-            <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600', marginBottom: 2 }}>
-              Reasoning:
-            </Text>
-            <Text style={{ ...typography.footnote, color: colors.text, lineHeight: 18 }}>
-              {screenReplay.reasoning}
-            </Text>
+        <View style={{ height: 1, backgroundColor: colors.divider }} />
+
+        {/* Metric 2: Screen Replay Risk */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 14 }}>📺</Text>
+            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Replay Detection</Text>
           </View>
+          <Text style={{ ...typography.callout, color: isReplay ? colors.error : colors.authentic, fontWeight: '700' }}>
+            {isReplay ? `${screenReplay.confidence ?? 95}% Screen Risk` : '0% Screen Risk'}
+          </Text>
+        </View>
+
+        {/* Reasoning Section */}
+        {Boolean(reasoningText) && (
+          <>
+            <View style={{ height: 1, backgroundColor: colors.divider, marginVertical: spacing.xs }} />
+            <View style={{ paddingTop: spacing.xs }}>
+              <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600', marginBottom: 4 }}>
+                REASONING:
+              </Text>
+              <Text style={{ ...typography.footnote, color: colors.text, lineHeight: 18 }}>
+                {reasoningText}
+              </Text>
+            </View>
+          </>
         )}
       </View>
     </Card>
