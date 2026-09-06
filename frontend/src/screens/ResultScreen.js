@@ -406,7 +406,15 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     resolvedGroq?.screenReplay?.isScreenReplay === true
   );
 
-  const isScreenReplayAttack = isRecaptured || screenCaptureByML || Boolean(resolvedGroq?.screenReplay?.isScreenReplay);
+  const isGroqConfirmedRealWorld = Boolean(
+    resolvedGroq?.screenReplay?.success === true &&
+    resolvedGroq?.screenReplay?.isScreenReplay === false &&
+    (resolvedGroq?.screenReplay?.confidence ?? 0) >= 80
+  );
+
+  const isScreenReplayAttack = isGroqConfirmedRealWorld
+    ? false
+    : (isRecaptured || screenCaptureByML || Boolean(resolvedGroq?.screenReplay?.isScreenReplay));
 
   const hashValid = isCaptureMode ? true : isHashMatch;
   const aiProbability = mlAnalysis?.aiProbability ?? 0;

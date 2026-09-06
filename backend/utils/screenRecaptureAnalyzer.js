@@ -405,8 +405,11 @@ const analyzeScreenRecapture = async (imageBuffer) => {
     const triggeredSignalsCount = [moireScore > 0.25, bandingScore > 0.25, rectangleScore > 0.25].filter(Boolean).length;
     if (triggeredSignalsCount === 0) {
       screenScore = 0;
-    } else if (triggeredSignalsCount >= 2) {
+    } else if (moireScore > 0.20 && triggeredSignalsCount >= 2) {
       screenScore = Math.min(1.0, screenScore * 1.3);
+    } else if (moireScore <= 0.15) {
+      // Scene objects (keyboard keycaps, window blinds, tiles) lacking display subpixel moire grid
+      screenScore = Math.min(0.35, screenScore * 0.5);
     } else {
       const maxSig = Math.max(moireScore, bandingScore, rectangleScore);
       if (maxSig >= 0.65) {
