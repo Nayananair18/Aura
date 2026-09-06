@@ -455,9 +455,13 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   const { colors } = theme;
   const styles = getStyles(theme);
 
-  const confidence = verification.confidence != null 
-    ? verification.confidence 
-    : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : 0.0));
+  const resolvedScreenConfidence = resolvedGroq?.screenReplay?.confidence || (mlAnalysis?.screenScore ? (mlAnalysis.screenScore <= 1 ? mlAnalysis.screenScore * 100 : mlAnalysis.screenScore) : 95.0);
+
+  const confidence = isScreenReplayAttack
+    ? parseFloat(Number(resolvedScreenConfidence).toFixed(1))
+    : (verification.confidence != null 
+        ? parseFloat(Number(verification.confidence).toFixed(1))
+        : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : (aiProbability >= 70 ? parseFloat(Number(aiProbability).toFixed(1)) : 95.0))));
   const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
 
   const displayHashMatch = isCaptureMode
@@ -563,7 +567,7 @@ export const ResultScreen = ({ route, navigation, theme }) => {
             <MLScoreCard 
               analysis={mlAnalysis} 
               isRecaptured={isScreenReplayAttack}
-              screenConfidence={resolvedGroq?.screenReplay?.confidence || (mlAnalysis?.screenScore ? (mlAnalysis.screenScore <= 1 ? mlAnalysis.screenScore * 100 : mlAnalysis.screenScore) : 95.0)}
+              screenConfidence={resolvedScreenConfidence}
               theme={theme} 
             />
           </View>
