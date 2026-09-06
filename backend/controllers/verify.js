@@ -2,7 +2,15 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const VerificationResult = require('../models/VerificationResult');
 const Proof = require('../models/Proof');
-const { generateHash, compareHashes, formatProofId, generateImageHash, watermarkImage } = require('../utils/crypto');
+const {
+  generateHash,
+  compareHashes,
+  formatProofId,
+  generateImageHash,
+  watermarkImage,
+  calculateDetailedStats,
+  calculateLightStats,
+} = require('../utils/crypto');
 const { saveToLedger, getLedgerProof } = require('../utils/ledgerStore');
 const config = require('../config/config');
 const logger = require('../utils/logger');
