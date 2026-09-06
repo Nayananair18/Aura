@@ -1,12 +1,12 @@
 # 🔬 A.U.R.A. - Forensic Engine & Machine Learning Architecture
 
-This document presents the detailed mathematical and algorithmic specification of the **A.U.R.A. Forensic Engine and Machine Learning Suite** located in [`backend/utils/`](file:///d:/Projects/Java_Script/Apps/AURA/backend/utils).
+This document presents the detailed mathematical and algorithmic specification of the **A.U.R.A. Forensic Engine and Machine Learning Suite** located in [`backend/utils/`](file:///d:/Projects/Java_Script/Apps/AURA/backend/utils) and [`backend/analyzers/`](file:///d:/Projects/Java_Script/Apps/AURA/backend/analyzers).
 
 ---
 
 ## 📐 Forensic Pipeline Overview
 
-A.U.R.A. evaluates digital media using a **4-stage forensic pipeline**:
+A.U.R.A. evaluates digital media using a **5-stage multi-modal forensic pipeline**:
 
 ```
 [ Uploaded Media Buffer ]
@@ -17,10 +17,12 @@ A.U.R.A. evaluates digital media using a **4-stage forensic pipeline**:
          │
          ├───► Stage 3: Error Level Analysis (ELA Re-compression Variance)
          │
-         └───► Stage 4: Screen Recapture Moire & Luminance Forensics
+         ├───► Stage 4: Screen Recapture Moire & Luminance Forensics
+         │
+         └───► Stage 5: Parallel Groq VLM Vision & Screen-Replay Inspection
          │
          ▼
-[ Weighted Ensemble Fusion ] ──► [ AURA Flag & Cryptographic SHA-256 Ledger Seal ]
+[ Multi-Engine Fusion & Override Rules ] ──► [ AURA Flag & Cryptographic SHA-256 Ledger Seal ]
 ```
 
 ---
@@ -122,14 +124,34 @@ When an attacker attempts to pass off an existing photo or AI image by taking a 
 
 ---
 
-## 5. Ensemble Fusion & Cryptographic Ledger Sealing
+## 5. Groq VLM Vision & Screen Replay Engine
 
-### Ensemble Probability Weighting
-The final AI Probability $P_{\text{final}}$ is calculated as:
-$$P_{\text{final}} = w_{\text{meta}} \cdot P_{\text{meta}} + w_{\text{visual}} \cdot P_{\text{visual}} + w_{\text{ela}} \cdot P_{\text{ela}}$$
-Where default weights are $w_{\text{meta}} = 0.55$, $w_{\text{visual}} = 0.30$, $w_{\text{ela}} = 0.15$.
+Located in [`backend/analyzers/groqAnalyzer.js`](file:///d:/Projects/Java_Script/Apps/AURA/backend/analyzers/groqAnalyzer.js).
 
-### Classification Thresholds & AURA Flag
+A.U.R.A. integrates Vision-Language Model capabilities via `groq-sdk` using the **`qwen/qwen3.8-27b`** model to execute parallel image forensics and dedicated screen-replay detection:
+
+1. **Lazy Client Initialization**: Client instances are instantiated on-demand via `getGroqClient()`.
+2. **Payload Protection**: Images exceeding 4MB are safely skipped to prevent network bottlenecks.
+3. **Structured JSON Output & Parsing**:
+   - `analyzeWithGroq(buffer)`: Returns `{ success, aiProbability, groqClassification, reasoning }`.
+   - `analyzeScreenReplayWithGroq(buffer)`: Returns `{ success, isScreenReplay, confidence, reasoning }`.
+   - Employs triple-tier JSON extraction (direct `JSON.parse`, markdown code fence stripping, and regex fallback extraction).
+4. **Score Isolation**: Groq VLM scores are presented independently in the UI (`GroqScoreCard.js`) and NOT blended into the deterministic ML ensemble probability to guarantee verifiable physics metrics.
+
+---
+
+## 6. Multi-Engine Fusion & Priority #1 Flag Rules
+
+### Priority #1 Override Rule: Screen Replay Attack Defense
+If **ANY** of the following conditions are true:
+- ML optical analysis returns `classification === 'SCREEN_RECAPTURE'` or `SCREEN_REPLAY`
+- ML optical screen score $\text{ScreenScore} \ge 0.50$ (50%)
+- Groq VLM screen replay analyzer returns `isScreenReplay === true`
+- Mobile sensor telemetry flags magnet/light flicker defense failure
+
+Then **`evaluatedFlag` IS IMMEDIATELY FORCED TO 🔴 RED** (`SCREEN RECAPTURE DETECTED`), overriding live camera capture mode and preventing authentic cryptographic seal generation.
+
+### Classification Thresholds & AURA Flags
 
 ```
            0.0                        0.35                      0.65                      1.0
@@ -137,9 +159,9 @@ Flag:       │        🟢 GREEN         │       🟡 YELLOW         │     
 Status:     │   AUTHENTIC_CAMERA      │   SUSPECTED_SYNTHETIC   │       AI_GENERATED      │
 ```
 
-- **🟢 GREEN (`AUTHENTIC_CAMERA`)**: $P_{\text{final}} < 0.35$ AND hardware EXIF verified.
-- **🟡 YELLOW (`SUSPECTED_SYNTHETIC` / `RECAPTURED_SCREEN`)**: $0.35 \le P_{\text{final}} < 0.65$ or screen replay detected.
-- **🔴 RED (`AI_GENERATED`)**: $P_{\text{final}} \ge 0.65$ or explicit AI prompt tags found.
+- **🟢 GREEN (`AUTHENTIC_CAMERA`)**: $P_{\text{final}} < 0.35$ AND hardware EXIF verified AND no screen replay detected.
+- **🟡 YELLOW (`UNVERIFIED / SUSPECTED`)**: $0.35 \le P_{\text{final}} < 0.65$ or missing EXIF on external uploads.
+- **🔴 RED (`AI_GENERATED / SCREEN_RECAPTURE`)**: $P_{\text{final}} \ge 0.65$ OR screen replay detected OR physical sensor violation.
 
 ### Cryptographic SHA-256 Ledger Sealing
 When an image achieves 🟢 **GREEN** status, a cryptographic payload is constructed:

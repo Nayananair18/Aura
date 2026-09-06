@@ -28,6 +28,7 @@ graph TD
         VisualML["Visual ML Feature Extractor (TensorFlow/Sharp)"]
         ELAModule["Error Level Analysis (ELA Engine)"]
         ScreenDetector["Screen Recapture Moire Analyzer"]
+        GroqVLM["Groq VLM Analyzer (groq-sdk qwen/qwen3.8-27b)"]
         Watermarker["Verified Marker & QR Generator"]
     end
 
@@ -51,6 +52,7 @@ graph TD
     ProofCtrl --> VisualML
     ProofCtrl --> ELAModule
     ProofCtrl --> ScreenDetector
+    ProofCtrl --> GroqVLM
     ProofCtrl --> Watermarker
 
     ExifParser --> KNNModel
@@ -58,6 +60,7 @@ graph TD
     VisualML --> ProofCtrl
     ELAModule --> ProofCtrl
     ScreenDetector --> ProofCtrl
+    GroqVLM --> ProofCtrl
 
     ProofCtrl --> Mongoose
     Mongoose -->|Primary| MongoDB
