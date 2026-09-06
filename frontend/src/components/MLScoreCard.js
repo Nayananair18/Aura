@@ -194,23 +194,38 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
   let classKey = analysis.classification;
 
-  // Override classification to SCREEN_RECAPTURE if screen recapture attack is detected across any layer
-  if (
-    isRecaptured ||
-    analysis.isRecaptured ||
-    analysis.screenCaptureByML ||
-    (analysis.screenScore ?? 0) >= 0.50 ||
-    (analysis.screenScore ?? 0) >= 50
-  ) {
+  // Authoritative override for classification:
+  if (isRecaptured === true) {
     classKey = 'SCREEN_RECAPTURE';
-  } else if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
+  } else if (isRecaptured === false) {
+    // Groq VLM or higher-level consensus confirmed NOT a screen recapture
     if (
-      analysis.auraFlag === 'GREEN' ||
-      analysis.status === 'verified' ||
-      (analysis.realProbability && analysis.realProbability >= 70) ||
-      (analysis.aiProbability != null && analysis.aiProbability <= 15)
+      classKey === 'SCREEN_RECAPTURE' ||
+      classKey === 'SCREEN_REPLAY' ||
+      !classKey ||
+      classKey === 'NOT_VERIFIED' ||
+      classKey === 'UNCERTAIN'
     ) {
       classKey = 'AUTHENTIC_CAMERA';
+    }
+  } else {
+    // Fallback if isRecaptured prop is undefined
+    if (
+      analysis.isRecaptured ||
+      analysis.screenCaptureByML ||
+      (analysis.screenScore ?? 0) >= 0.50 ||
+      (analysis.screenScore ?? 0) >= 50
+    ) {
+      classKey = 'SCREEN_RECAPTURE';
+    } else if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
+      if (
+        analysis.auraFlag === 'GREEN' ||
+        analysis.status === 'verified' ||
+        (analysis.realProbability && analysis.realProbability >= 70) ||
+        (analysis.aiProbability != null && analysis.aiProbability <= 15)
+      ) {
+        classKey = 'AUTHENTIC_CAMERA';
+      }
     }
   }
 
@@ -293,12 +308,12 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
         {/* Model 1: EXIF Metadata */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔢</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Hardware EXIF (KNN)</Text>
           </View>
-          <Text style={{ ...typography.callout, color: (analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
-            {analysis.knnAiProbability ?? 0}% AI Risk
+          <Text style={{ ...typography.callout, color: (analysis.hasHardwareExif || analysis.metadataFingerprint?.make || analysis.metadataFingerprint?.model) ? ((analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic) : colors.textMuted, fontWeight: '700', flexShrink: 0 }}>
+            {(analysis.hasHardwareExif || analysis.metadataFingerprint?.make || analysis.metadataFingerprint?.model) ? `${analysis.knnAiProbability ?? 0}% AI Risk` : 'No EXIF Tags'}
           </Text>
         </View>
 
@@ -306,11 +321,11 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
         {/* Model 2: Visual Optics */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>👁</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Visual Optics (CNN)</Text>
           </View>
-          <Text style={{ ...typography.callout, color: (analysis.visualAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
+          <Text style={{ ...typography.callout, color: (analysis.visualAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
             {analysis.visualAiProbability ?? 0}% AI Risk
           </Text>
         </View>
@@ -320,32 +335,28 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
           <>
             <View style={{ height: 1, backgroundColor: colors.divider }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
                 <Text style={{ fontSize: 14 }}>🔬</Text>
                 <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Error Level (ELA)</Text>
               </View>
-              <Text style={{ ...typography.callout, color: (analysis.elaAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
+              <Text style={{ ...typography.callout, color: (analysis.elaAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
                 {analysis.elaAiProbability ?? 0}% AI Risk
               </Text>
             </View>
           </>
         )}
 
-        {/* Model 4: Screen Recapture (Only if relevant) */}
-        {isScreenCapture && (
-          <>
-            <View style={{ height: 1, backgroundColor: colors.divider }} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 14 }}>📺</Text>
-                <Text style={{ ...typography.callout, color: colors.error, fontWeight: '600' }}>Screen Recapture</Text>
-              </View>
-              <Text style={{ ...typography.callout, color: colors.error, fontWeight: '700' }}>
-                {(analysis.screenScore * 100).toFixed(0)}% Screen Score
-              </Text>
-            </View>
-          </>
-        )}
+        {/* Model 4: Screen Recapture */}
+        <View style={{ height: 1, backgroundColor: colors.divider }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
+            <Text style={{ fontSize: 14 }}>📺</Text>
+            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Recapture</Text>
+          </View>
+          <Text style={{ ...typography.callout, color: isScreenCapture ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
+            {isScreenCapture ? `${displayConfidence}% Screen Risk` : '0% Screen Risk'}
+          </Text>
+        </View>
       </View>
     </Card>
   );

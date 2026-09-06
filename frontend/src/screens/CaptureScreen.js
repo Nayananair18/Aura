@@ -14,6 +14,7 @@ import { applyAuraWatermark } from '../utils/watermark';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Location from 'expo-location';
 
 // ── Helpers & Styles (Moved up to prevent ReferenceErrors) ──
 
@@ -412,6 +413,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
         const available = await SensorManagerClass.checkAvailability();
         setSensorAvailability(available);
         setSensorsReady(Boolean(available.accelerometer || available.gyroscope || available.magnetometer));
+        await SensorManager.startCollecting();
       } catch (err) {
         console.error('Error initializing sensors:', err);
         setError('Sensors not available on this device');

@@ -229,6 +229,7 @@ export const pickImageFromGallery = async () => {
       allowsEditing: false,
       quality: 0.9,
       base64: true,
+      exif: true,
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) {
@@ -250,6 +251,7 @@ export const pickImageFromGallery = async () => {
       mimeType: asset.mimeType || 'image/jpeg',
       width: asset.width,
       height: asset.height,
+      exif: asset.exif || null,
       base64,
     };
   } catch (error) {
@@ -278,7 +280,19 @@ export const getFileAsBase64 = async (fileUri) => {
   try {
     if (!fileUri) throw new Error('No file URI provided');
 
-    // Primary: fetch(fileUri) + FileReader (works for content://, file://, and DocumentPicker URIs on Android/iOS/Web)
+    // Primary for local file:// URIs: FileSystem.readAsStringAsync (fast, avoids React Native Blob warning)
+    if (typeof fileUri === 'string' && (fileUri.startsWith('file://') || fileUri.startsWith('/'))) {
+      try {
+        const fileContent = await FileSystem.readAsStringAsync(fileUri, {
+          encoding: 'base64',
+        });
+        if (fileContent) return fileContent;
+      } catch (fsErr) {
+        console.warn('[FileService] readAsStringAsync failed, falling back to fetch:', fsErr.message);
+      }
+    }
+
+    // Secondary for content:// and DocumentPicker URIs: fetch(fileUri) + FileReader
     try {
       const response = await fetch(fileUri);
       const blob = await response.blob();
@@ -296,10 +310,9 @@ export const getFileAsBase64 = async (fileUri) => {
         reader.readAsDataURL(blob);
       });
     } catch (fetchErr) {
-      console.warn('[FileService] fetch base64 failed, attempting FileSystem fallback:', fetchErr.message);
+      console.warn('[FileService] fetch base64 failed, attempting final FileSystem fallback:', fetchErr.message);
     }
 
-    // Secondary: FileSystem.readAsStringAsync fallback
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64',
     });

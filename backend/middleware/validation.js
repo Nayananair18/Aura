@@ -21,12 +21,12 @@ const validateGenerateProof = [
  * Validate verify media request
  */
 const validateVerifyMedia = [
-  // fileHash is optional — the frontend sends null when verifying an image
-  // that was not previously registered (gallery upload path).
+  // fileHash and uploadedMediaHash are optional — proofId lookup or gallery uploads can send nullable fields
   body('fileHash').optional({ nullable: true }),
-  body('metadata').isObject().withMessage('Metadata is required'),
-  body('metadata.fileName').notEmpty().withMessage('File name is required'),
-  body('uploadedMediaHash').notEmpty().withMessage('Uploaded media hash is required'),
+  body('metadata').optional({ nullable: true }),
+  body('uploadedMediaHash').optional({ nullable: true }),
+  body('proofId').optional({ nullable: true }),
+  body('image').optional({ nullable: true }),
 ];
 
 /**

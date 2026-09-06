@@ -6,6 +6,7 @@ import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
 import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
 import * as FileService from '../services/fileService';
+import { prepareImageForVerification } from '../utils/watermark';
 
 // ── Helpers & Styles ──
 
@@ -215,7 +216,10 @@ export const VerificationScreen = ({ navigation, theme }) => {
   const handleUpload = async () => {
     try {
       setError(null);
-      const file = await FileService.pickFile();
+      let file = await FileService.pickImageFromGallery();
+      if (!file) {
+        file = await FileService.pickFile();
+      }
       if (file) {
         setUploadedFile({
           name: file.name,
@@ -223,6 +227,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
           type: file.mimeType,
           uri: file.uri,
           fullSize: file.size,
+          exif: file.exif || null,
         });
       }
     } catch (err) {
@@ -238,8 +243,8 @@ export const VerificationScreen = ({ navigation, theme }) => {
   const extractProofId = (text) => {
     if (!text) return '';
     const clean = text.trim();
-    // Matches AURA-XXXX-XXXX-XXXX pattern
-    const auraMatch = clean.match(/AURA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}/i);
+    // Matches AURA-XXXX-XXXX-XXXX-XXXX pattern (supports 3+ hyphenated blocks)
+    const auraMatch = clean.match(/AURA(?:-[A-Za-z0-9]{4})+/i);
     if (auraMatch) return auraMatch[0].toUpperCase();
     
     // Or extract last component if URL
@@ -281,14 +286,17 @@ export const VerificationScreen = ({ navigation, theme }) => {
       let fileHash = null;
       let base64Image = null;
 
-      // Step 1: Hash uploaded file if present
+      // Step 1: Hash uploaded file if present & compress image for ML/Groq analysis
       if (targetFile) {
         setVerifyStep('Computing cryptographic hash...');
         fileHash = await FileService.hashFile(targetFile.uri);
 
         setVerifyStep('Extracting metadata fingerprint...');
-        const FILE_SIZE_LIMIT_FOR_ML = 10 * 1024 * 1024;
-        if (targetFile.fullSize <= FILE_SIZE_LIMIT_FOR_ML) {
+        try {
+          const prep = await prepareImageForVerification(targetFile.uri);
+          base64Image = prep.base64;
+        } catch (prepErr) {
+          console.warn('[Verify] Compression fallback:', prepErr.message);
           try {
             base64Image = await FileService.getFileAsBase64(targetFile.uri);
           } catch (b64Err) {
@@ -297,13 +305,17 @@ export const VerificationScreen = ({ navigation, theme }) => {
         }
       }
 
+      // Extract raw EXIF metadata provided by ImagePicker / file payload
+      const rawExif = targetFile?.exif || null;
+
       // Step 2: Run verification against AURA Backend
       setVerifyStep('Querying AURA Proof Ledger & verifying physics...');
       const metadataPayload = {
         fileName: targetFile?.name || 'shared_media.jpg',
         fileType: targetFile?.type || 'image/jpeg',
-        fileSize: targetFile?.fullSize || null,
+        fileSize: targetFile?.fullSize || targetFile?.size || null,
         uploadedAt: new Date().toISOString(),
+        exif: rawExif,
       };
 
       const [result, mlResponse] = await Promise.all([
@@ -311,11 +323,15 @@ export const VerificationScreen = ({ navigation, theme }) => {
           fileHash,
           metadataPayload,
           fileHash,
-          targetProofId
+          targetProofId,
+          base64Image
         ),
         base64Image
-          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type)
-          : Promise.resolve({ success: false, analysis: null }),
+          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type, rawExif).catch((mlErr) => {
+              console.warn('[VerificationScreen] ML/Groq analysis warning:', mlErr.message);
+              return { success: false, analysis: null, groq: null };
+            })
+          : Promise.resolve({ success: false, analysis: null, groq: null }),
       ]);
 
             // Step 3: Store verification result in ledger
@@ -337,11 +353,13 @@ export const VerificationScreen = ({ navigation, theme }) => {
         status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : (result.verification?.auraFlag === 'YELLOW' ? 'unverified' : 'tampered')),
         verification: result.verification,
         proof: result.verification?.proofDetails || { id: targetProofId },
+        result: result,
         fileHash: fileHash || result.verification?.hashValidation?.storedHash,
         fileName: targetFile?.name || targetProofId || 'Shared Media',
         photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
-        mlAnalysis: mlResponse?.analysis || null,
-        groqAnalysis: mlResponse?.groq || null,
+        sensorData: result.verification?.proofDetails?.sensorData || null,
+        mlAnalysis: mlResponse?.analysis || result.verification?.proofDetails?.ml || null,
+        groqAnalysis: mlResponse?.groq || result.verification?.proofDetails?.groq || null,
         isCaptureMode: false,
       });
     } catch (err) {
