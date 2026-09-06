@@ -15,6 +15,7 @@ const {
 const logger = require("../utils/logger");
 const { saveToLedger } = require("../utils/ledgerStore");
 const { analyzeImageMetadata } = require("../utils/metadataAnalyzer");
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require("../analyzers/groqAnalyzer");
 
 // Max base64 image size: ~8MB (covers a full 6MP JPEG at quality 95)
 const MAX_MEDIA_SIZE_BYTES = 8 * 1024 * 1024;
@@ -102,16 +103,6 @@ const generateAuthenticityProof = async (req, res) => {
     const baseUrl = process.env.VERIFICATION_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://aura-app.com/verify';
     const verificationUrl = baseUrl.endsWith('/') ? `${baseUrl}${proofId}` : `${baseUrl}/${proofId}`;
 
-    // Add server-side watermark if authentic
-    let watermarkedImage = mediaData;
-    if (integrityAnalysis.auraFlag === 'GREEN' && mediaData && mediaData.length > 100) {
-      logger.info(`Authenticity verified. Applying A.U.R.A. Certified Seal (${proofId})...`);
-      watermarkedImage = await watermarkImage(mediaData, proofId, metadata.timestamp || new Date().toISOString(), verificationUrl);
-    }
-    
-    // Hash the final image bytes
-    const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : proofHash;
-
     const spatiotemporalData = {
       location: sensorData.location || null,
       timestamp: sensorData.timestamp || null,
@@ -119,11 +110,21 @@ const generateAuthenticityProof = async (req, res) => {
       deviceId: metadata?.deviceId || null,
     };
 
-    // Run full pixel ML forensics and EXIF metadata extraction
+    // Convert mediaData base64 string/buffer into targetBuffer
+    const targetBuffer = mediaData
+      ? (Buffer.isBuffer(mediaData) ? mediaData : Buffer.from(String(mediaData).replace(/^data:image\/\w+;base64,/, ''), 'base64'))
+      : null;
+
+    // Run full pixel ML forensics, EXIF metadata extraction, and Groq VLM analysis concurrently
     let realMlAnalysis = null;
-    if (targetBuffer) {
+    let groqAnalysis = null;
+    if (targetBuffer && targetBuffer.length > 0) {
       try {
-        const mlRes = await analyzeImageMetadata(targetBuffer, metadata?.exif || metadata?.photoData?.exif);
+        const [mlRes, groqRes, screenReplayRes] = await Promise.all([
+          analyzeImageMetadata(targetBuffer, metadata?.exif || metadata?.photoData?.exif),
+          analyzeWithGroq(targetBuffer),
+          analyzeScreenReplayWithGroq(targetBuffer),
+        ]);
         if (mlRes) {
           const { metadataFingerprint, ...restMl } = mlRes;
           realMlAnalysis = {
@@ -133,10 +134,55 @@ const generateAuthenticityProof = async (req, res) => {
             isMock: false,
           };
         }
+        groqAnalysis = {
+          imageAnalysis: groqRes,
+          screenReplay: screenReplayRes,
+        };
       } catch (mlErr) {
-        logger.warn("[Proof] Real ML analysis error: " + mlErr.message);
+        logger.warn("[Proof] Real ML/Groq analysis error: " + mlErr.message);
       }
     }
+
+    const isMlScreenRecapture = Boolean(
+      realMlAnalysis?.classification === 'SCREEN_RECAPTURE' ||
+      realMlAnalysis?.classification === 'SCREEN_REPLAY' ||
+      (realMlAnalysis?.screenScore ?? 0) >= 0.50 ||
+      (realMlAnalysis?.screenScore ?? 0) >= 50
+    );
+    const isGroqScreenReplay = Boolean(groqAnalysis?.screenReplay?.isScreenReplay === true);
+    const isScreenRecaptureDetected = isMlScreenRecapture || isGroqScreenReplay;
+
+    let finalAuraFlag = integrityAnalysis.auraFlag || 'GREEN';
+    if (isScreenRecaptureDetected || (realMlAnalysis?.aiProbability ?? 0) >= 70) {
+      finalAuraFlag = 'RED';
+    } else if ((realMlAnalysis?.aiProbability ?? 0) >= 25 && finalAuraFlag === 'GREEN') {
+      finalAuraFlag = 'YELLOW';
+    }
+
+    // Add server-side watermark only if image is genuinely authentic (GREEN flag)
+    let watermarkedImage = mediaData;
+    if (finalAuraFlag === 'GREEN' && mediaData && mediaData.length > 100) {
+      logger.info(`Authenticity verified. Applying A.U.R.A. Certified Seal (${proofId})...`);
+      watermarkedImage = await watermarkImage(mediaData, proofId, metadata.timestamp || new Date().toISOString(), verificationUrl);
+    }
+    
+    // Hash the final image bytes
+    const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : proofHash;
+
+    const integrityScore = integrityAnalysis.overallScore || 90;
+    const finalStatus = finalAuraFlag === 'GREEN' ? 'authentic' : 'tampered';
+    const isRecaptured = finalAuraFlag === 'RED' || isScreenRecaptureDetected;
+    const imageScreenStats = integrityAnalysis.screenStats || null;
+    const sensorResult = integrityAnalysis;
+    const screenDefensePassed = finalAuraFlag === 'GREEN';
+    const sensorsPassed = validSensors;
+    const aiProbability = realMlAnalysis?.aiProbability ?? 0;
+    const finalClassification = isScreenRecaptureDetected 
+      ? 'SCREEN_RECAPTURE' 
+      : (realMlAnalysis?.classification || (finalAuraFlag === 'GREEN' ? 'REAL_CAMERA' : 'UNCERTAIN'));
+    const failureReason = isScreenRecaptureDetected 
+      ? 'Photo of a digital screen detected (Optical PWM flicker & subpixel grid interference)' 
+      : (finalAuraFlag === 'RED' ? 'Sensor integrity anomaly detected' : null);
 
     // Standardized Proof Document for MongoDB and In-Memory Ledger
     const proofDoc = {
@@ -148,6 +194,7 @@ const generateAuthenticityProof = async (req, res) => {
       metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       mlAnalysis: realMlAnalysis,
+      groq: groqAnalysis,
       sensorMetrics: sensorData,
       sensorData,
       sensorStats,
@@ -218,6 +265,7 @@ const generateAuthenticityProof = async (req, res) => {
       imageScreenStats,
       spatiotemporalData,
       mlAnalysis: realMlAnalysis,
+      groq: groqAnalysis,
       metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       integrityAnalysis: {

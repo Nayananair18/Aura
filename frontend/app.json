@@ -9,7 +9,12 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/authenticity.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/authenticity.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090B"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.aura.realityproof",
@@ -19,6 +24,11 @@
     },
     "android": {
       "package": "com.aura.realityproof",
+      "splash": {
+        "image": "./assets/authenticity.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#09090B"
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/authenticity.png",
         "backgroundColor": "#09090B"

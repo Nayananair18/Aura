@@ -341,6 +341,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
         fileName: targetFile?.name || targetProofId || 'Shared Media',
         photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
         mlAnalysis: mlResponse?.analysis || null,
+        groqAnalysis: mlResponse?.groq || null,
         isCaptureMode: false,
       });
     } catch (err) {

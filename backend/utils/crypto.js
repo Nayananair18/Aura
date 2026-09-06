@@ -382,11 +382,11 @@ const analyzeSensorIntegrity = (sensorData) => {
     const isMajor = analysis.physicsDefense.details.includes('Emulator') || analysis.physicsDefense.details.includes('Planar');
     analysis.auraFlag = isMajor ? 'RED' : 'YELLOW';
     analysis.overallScore = Math.min(analysis.overallScore, 55);
-  } else if (!analysis.locationValid || !analysis.timestampValid) {
-    analysis.auraFlag = 'YELLOW';
-    analysis.overallScore = Math.min(analysis.overallScore, 80);
   } else {
     analysis.auraFlag = 'GREEN';
+    if (!analysis.locationValid || !analysis.timestampValid) {
+      analysis.overallScore = Math.min(analysis.overallScore, 85);
+    }
   }
 
   console.log(`[=] FINAL A.U.R.A. SCORE: ${analysis.overallScore}/100`);

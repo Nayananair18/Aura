@@ -150,6 +150,13 @@ export class SensorManager {
   }
 
   /**
+   * Get all collected sensor telemetry payload (alias for getSensorData)
+   */
+  async getTelemetryPayload() {
+    return this.getSensorData();
+  }
+
+  /**
    * Get live sensor statistics (for UI display during capture)
    */
   getSensorStats() {
