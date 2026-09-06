@@ -194,23 +194,38 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
   let classKey = analysis.classification;
 
-  // Override classification to SCREEN_RECAPTURE if screen recapture attack is detected across any layer
-  if (
-    isRecaptured ||
-    analysis.isRecaptured ||
-    analysis.screenCaptureByML ||
-    (analysis.screenScore ?? 0) >= 0.50 ||
-    (analysis.screenScore ?? 0) >= 50
-  ) {
+  // Authoritative override for classification:
+  if (isRecaptured === true) {
     classKey = 'SCREEN_RECAPTURE';
-  } else if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
+  } else if (isRecaptured === false) {
+    // Groq VLM or higher-level consensus confirmed NOT a screen recapture
     if (
-      analysis.auraFlag === 'GREEN' ||
-      analysis.status === 'verified' ||
-      (analysis.realProbability && analysis.realProbability >= 70) ||
-      (analysis.aiProbability != null && analysis.aiProbability <= 15)
+      classKey === 'SCREEN_RECAPTURE' ||
+      classKey === 'SCREEN_REPLAY' ||
+      !classKey ||
+      classKey === 'NOT_VERIFIED' ||
+      classKey === 'UNCERTAIN'
     ) {
       classKey = 'AUTHENTIC_CAMERA';
+    }
+  } else {
+    // Fallback if isRecaptured prop is undefined
+    if (
+      analysis.isRecaptured ||
+      analysis.screenCaptureByML ||
+      (analysis.screenScore ?? 0) >= 0.50 ||
+      (analysis.screenScore ?? 0) >= 50
+    ) {
+      classKey = 'SCREEN_RECAPTURE';
+    } else if (!classKey || classKey === 'NOT_VERIFIED' || classKey === 'UNCERTAIN') {
+      if (
+        analysis.auraFlag === 'GREEN' ||
+        analysis.status === 'verified' ||
+        (analysis.realProbability && analysis.realProbability >= 70) ||
+        (analysis.aiProbability != null && analysis.aiProbability <= 15)
+      ) {
+        classKey = 'AUTHENTIC_CAMERA';
+      }
     }
   }
 
@@ -331,21 +346,17 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
           </>
         )}
 
-        {/* Model 4: Screen Recapture (Only if relevant) */}
-        {isScreenCapture && (
-          <>
-            <View style={{ height: 1, backgroundColor: colors.divider }} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ fontSize: 14 }}>📺</Text>
-                <Text style={{ ...typography.callout, color: colors.error, fontWeight: '600' }}>Screen Recapture</Text>
-              </View>
-              <Text style={{ ...typography.callout, color: colors.error, fontWeight: '700' }}>
-                {displayConfidence}% Screen Risk
-              </Text>
-            </View>
-          </>
-        )}
+        {/* Model 4: Screen Recapture */}
+        <View style={{ height: 1, backgroundColor: colors.divider }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 14 }}>📺</Text>
+            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Recapture</Text>
+          </View>
+          <Text style={{ ...typography.callout, color: isScreenCapture ? colors.error : colors.authentic, fontWeight: '700' }}>
+            {isScreenCapture ? `${displayConfidence}% Screen Risk` : '0% Screen Risk'}
+          </Text>
+        </View>
       </View>
     </Card>
   );
