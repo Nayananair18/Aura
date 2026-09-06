@@ -27,6 +27,20 @@ A.U.R.A. evaluates digital media using a **5-stage multi-modal forensic pipeline
 
 ---
 
+## 📚 Dedicated Verification Layer Guides
+
+For full technical specifications of each verification stage, refer to the dedicated guides below:
+
+1. [📜 **Layer 1: EXIF Metadata & Hardware Fingerprint Forensics**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_1_EXIF_METADATA_KNN.md)
+2. [👁️ **Layer 2: Visual ML Pixel-Level Forensics**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_2_VISUAL_ML_PIXEL_FORENSICS.md)
+3. [🧪 **Layer 3: Error Level Analysis (ELA)**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_3_ERROR_LEVEL_ANALYSIS.md)
+4. [📺 **Layer 4: Optical Screen Recapture & Moire Defense**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_4_SCREEN_RECAPTURE_DEFENSE.md)
+5. [🤖 **Layer 5: Groq VLM Vision & Replay Engine**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_5_GROQ_VLM_VISION_ENGINE.md)
+6. [📡 **Layer 6: Hardware Sensor & Telemetry Defense**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_6_HARDWARE_SENSOR_TELEMETRY.md)
+7. [🔐 **Layer 7: Cryptographic Ledger & SHA-256 Watermark Sealing**](file:///d:/Projects/Java_Script/Apps/AURA/docs/verification_layers/LAYER_7_CRYPTOGRAPHIC_LEDGER_SEAL.md)
+
+---
+
 ## 1. Metadata KNN Model ($k=5$)
 
 Located in [`backend/utils/metadataAnalyzer.js`](file:///d:/Projects/Java_Script/Apps/AURA/backend/utils/metadataAnalyzer.js).
