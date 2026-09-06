@@ -152,6 +152,8 @@ const verifyMedia = async (req, res) => {
         confidence: existingProof.overallConfidence || 99.7,
         deviceId: existingProof.deviceId || 'Verified Device',
         exif: existingProof.metadata?.exif || null,
+        groq: existingProof.metadata?.groq || null,
+        ml: existingProof.metadata?.ml || null,
         sensorStats: existingProof.sensorData ? {
           magnetometer: existingProof.sensorData.magnetometer ? calculateDetailedStats(existingProof.sensorData.magnetometer) : null,
           light: existingProof.sensorData.light ? calculateLightStats(existingProof.sensorData.light) : null,

@@ -386,22 +386,14 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     (mlAnalysis?.screenScore ?? 0) >= 50
   );
 
-  // Replay check: True if flagged by sensor telemetry, ML visual analysis, or Groq analysis
+  // Replay check: True if flagged by ML visual analysis, Groq analysis, or active screen defense
   const isRecaptured = Boolean(
     params.isRecaptured === true ||
-    params.auraFlag === 'RED' ||
-    params.result?.auraFlag === 'RED' ||
     params.result?.isRecaptured === true ||
-    status === 'tampered' ||
     verification.isRecaptured === true ||
-    verification.auraFlag === 'RED' ||
-    verification.status === 'tampered' ||
     verification.screenDefense?.isRecaptured === true ||
     verification.screenDefense?.result === 'failed' ||
-    verification.screenDefensePassed === false ||
     proof.isRecaptured === true ||
-    proof.auraFlag === 'RED' ||
-    proof.status === 'tampered' ||
     screenCaptureByML ||
     resolvedGroq?.screenReplay?.isScreenReplay === true
   );
@@ -418,9 +410,8 @@ export const ResultScreen = ({ route, navigation, theme }) => {
 
   const hashValid = isCaptureMode ? true : isHashMatch;
   const aiProbability = mlAnalysis?.aiProbability ?? 0;
-  const screenPassed = verification.screenDefense?.result === 'passed' || 
-    (verification.screenDefense?.magnetometerPassed && verification.screenDefense?.lightFlickerPassed);
-  const physicsPassed = Boolean(verification.physicsDefense?.motionPassed);
+  const screenFailed = verification.screenDefense?.result === 'failed' || verification.screenDefense?.isRecaptured === true;
+  const physicsFailed = verification.physicsDefense?.result === 'failed';
   const hasHardwareExif = Boolean(
     mlAnalysis?.hasHardwareExif ??
     (physicalFingerprint?.Make || physicalFingerprint?.Model || physicalFingerprint?.ExposureTime || physicalFingerprint?.FNumber)
@@ -430,19 +421,16 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   let evaluatedFlag = 'GREEN';
 
   // PRIORITY 1: Screen replay attack, tampered status, high AI probability, or failed screen/physics defenses trigger RED flag regardless of capture mode
-  if (isScreenReplayAttack || status === 'tampered' || aiProbability >= 70 || screenPassed === false || physicsPassed === false) {
+  if (isScreenReplayAttack || status === 'tampered' || aiProbability >= 70 || screenFailed || physicsFailed) {
     evaluatedFlag = 'RED';
   } else if (isCaptureMode) {
     evaluatedFlag = 'GREEN';
-  } else if (!isHashMatch && (aiProbability >= 70 || status === 'tampered')) {
+  } else if (!isHashMatch && aiProbability >= 70) {
     evaluatedFlag = 'RED';
   } else if (!isHashMatch) {
-    // Unregistered external upload without authentic ledger proof
-    evaluatedFlag = aiProbability >= 70 ? 'RED' : 'YELLOW';
-  } else if (!screenPassed || !physicsPassed || aiProbability >= 70 || !hashValid || status === 'tampered') {
-    evaluatedFlag = 'RED';
-  } else if (!hasHardwareExif || aiProbability >= 25 || status === 'unverified' || status === 'suspicious') {
-    // Missing EXIF or AI prob in 25%-70% band -> strictly YELLOW / AMBER (NEVER GREEN)
+    // Unregistered external upload without authentic ledger proof -> YELLOW (Unverified External Media)
+    evaluatedFlag = 'YELLOW';
+  } else if (status === 'unverified' || !hasHardwareExif || aiProbability >= 25) {
     evaluatedFlag = 'YELLOW';
   } else {
     evaluatedFlag = 'GREEN';

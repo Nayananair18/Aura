@@ -337,11 +337,13 @@ export const VerificationScreen = ({ navigation, theme }) => {
         status: result.verification?.status || (result.verification?.auraFlag === 'GREEN' ? 'authentic' : (result.verification?.auraFlag === 'YELLOW' ? 'unverified' : 'tampered')),
         verification: result.verification,
         proof: result.verification?.proofDetails || { id: targetProofId },
+        result: result,
         fileHash: fileHash || result.verification?.hashValidation?.storedHash,
         fileName: targetFile?.name || targetProofId || 'Shared Media',
         photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
-        mlAnalysis: mlResponse?.analysis || null,
-        groqAnalysis: mlResponse?.groq || null,
+        sensorData: result.verification?.proofDetails?.sensorData || null,
+        mlAnalysis: mlResponse?.analysis || result.verification?.proofDetails?.ml || null,
+        groqAnalysis: mlResponse?.groq || result.verification?.proofDetails?.groq || null,
         isCaptureMode: false,
       });
     } catch (err) {
