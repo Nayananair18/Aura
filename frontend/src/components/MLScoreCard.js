@@ -308,11 +308,11 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
         {/* Model 1: EXIF Metadata */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔢</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Hardware EXIF (KNN)</Text>
           </View>
-          <Text style={{ ...typography.callout, color: (analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
+          <Text style={{ ...typography.callout, color: (analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
             {analysis.knnAiProbability ?? 0}% AI Risk
           </Text>
         </View>
@@ -321,11 +321,11 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
 
         {/* Model 2: Visual Optics */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>👁</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Visual Optics (CNN)</Text>
           </View>
-          <Text style={{ ...typography.callout, color: (analysis.visualAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
+          <Text style={{ ...typography.callout, color: (analysis.visualAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
             {analysis.visualAiProbability ?? 0}% AI Risk
           </Text>
         </View>
@@ -335,11 +335,11 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
           <>
             <View style={{ height: 1, backgroundColor: colors.divider }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
                 <Text style={{ fontSize: 14 }}>🔬</Text>
                 <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Error Level (ELA)</Text>
               </View>
-              <Text style={{ ...typography.callout, color: (analysis.elaAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700' }}>
+              <Text style={{ ...typography.callout, color: (analysis.elaAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
                 {analysis.elaAiProbability ?? 0}% AI Risk
               </Text>
             </View>
@@ -349,11 +349,11 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
         {/* Model 4: Screen Recapture */}
         <View style={{ height: 1, backgroundColor: colors.divider }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>📺</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Recapture</Text>
           </View>
-          <Text style={{ ...typography.callout, color: isScreenCapture ? colors.error : colors.authentic, fontWeight: '700' }}>
+          <Text style={{ ...typography.callout, color: isScreenCapture ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
             {isScreenCapture ? `${displayConfidence}% Screen Risk` : '0% Screen Risk'}
           </Text>
         </View>

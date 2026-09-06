@@ -49,8 +49,7 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
   }
 
   const isReplay = screenReplay.isScreenReplay === true;
-  const isAiGen = imageAnalysis.groqClassification === 'AI_GENERATED' || (imageAnalysis.aiProbability ?? 0) >= 50;
-  const isRealCam = !isReplay && !isAiGen;
+  const isAiGen = !isReplay && (imageAnalysis.groqClassification === 'AI_GENERATED' || (imageAnalysis.aiProbability ?? 0) >= 50);
 
   const classColor = isReplay || isAiGen
     ? colors.tampered || '#EF4444'
@@ -68,6 +67,10 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
   const reasoningText = isReplay
     ? (screenReplay.reasoning || imageAnalysis.reasoning)
     : (imageAnalysis.reasoning || screenReplay.reasoning);
+
+  // If a physical screen replay attack is detected, AI generation risk is 0% (it's a camera capture of a screen, not AI deepfake art)
+  const displayAiRisk = isReplay ? 0 : (imageAnalysis.aiProbability ?? 0);
+  const aiRiskColor = isAiGen ? colors.error : colors.authentic;
 
   return (
     <Card theme={theme}>
@@ -126,12 +129,12 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
 
         {/* Metric 1: AI Generation Risk */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🤖</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>AI Generation Risk</Text>
           </View>
-          <Text style={{ ...typography.callout, color: isAiGen ? colors.error : colors.authentic, fontWeight: '700' }}>
-            {imageAnalysis.aiProbability ?? 15}% AI Risk
+          <Text style={{ ...typography.callout, color: aiRiskColor, fontWeight: '700', flexShrink: 0 }}>
+            {displayAiRisk}% AI Risk
           </Text>
         </View>
 
@@ -139,11 +142,11 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
 
         {/* Metric 2: Screen Replay Risk */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>📺</Text>
-            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Replay Detection</Text>
+            <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Screen Replay</Text>
           </View>
-          <Text style={{ ...typography.callout, color: isReplay ? colors.error : colors.authentic, fontWeight: '700' }}>
+          <Text style={{ ...typography.callout, color: isReplay ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
             {isReplay ? `${screenReplay.confidence ?? 95}% Screen Risk` : '0% Screen Risk'}
           </Text>
         </View>
