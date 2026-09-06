@@ -48,6 +48,31 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
     );
   }
 
+  const isRateLimited = Boolean(
+    imageAnalysis.error?.includes('429') ||
+    imageAnalysis.reasoning?.includes('rate_limit') ||
+    imageAnalysis.reasoning?.includes('Rate limit') ||
+    screenReplay.error?.includes('429') ||
+    screenReplay.reasoning?.includes('rate_limit') ||
+    screenReplay.reasoning?.includes('Rate limit')
+  );
+
+  if (isRateLimited) {
+    return (
+      <Card theme={theme}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.xs }}>
+          <Text style={{ fontSize: 16 }}>⚠️</Text>
+          <Text style={{ ...typography.callout, color: colors.warning || '#F59E0B', fontWeight: '700' }}>
+            Groq VLM Rate Limit Reached
+          </Text>
+        </View>
+        <Text style={{ ...typography.footnote, color: colors.textMuted, lineHeight: 18 }}>
+          Groq VLM token quota (200,000 TPD) limit reached. Hardware EXIF, Visual Optics, and ELA forensic engines remain active.
+        </Text>
+      </Card>
+    );
+  }
+
   const isReplay = screenReplay.isScreenReplay === true;
   const isAiGen = !isReplay && (imageAnalysis.groqClassification === 'AI_GENERATED' || (imageAnalysis.aiProbability ?? 0) >= 50);
 

@@ -229,6 +229,7 @@ export const pickImageFromGallery = async () => {
       allowsEditing: false,
       quality: 0.9,
       base64: true,
+      exif: true,
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) {
@@ -250,6 +251,7 @@ export const pickImageFromGallery = async () => {
       mimeType: asset.mimeType || 'image/jpeg',
       width: asset.width,
       height: asset.height,
+      exif: asset.exif || null,
       base64,
     };
   } catch (error) {

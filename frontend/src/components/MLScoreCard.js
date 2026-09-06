@@ -312,8 +312,8 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
             <Text style={{ fontSize: 14 }}>🔢</Text>
             <Text style={{ ...typography.callout, color: colors.text, fontWeight: '600' }}>Hardware EXIF (KNN)</Text>
           </View>
-          <Text style={{ ...typography.callout, color: (analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic, fontWeight: '700', flexShrink: 0 }}>
-            {analysis.knnAiProbability ?? 0}% AI Risk
+          <Text style={{ ...typography.callout, color: (analysis.hasHardwareExif || analysis.metadataFingerprint?.make || analysis.metadataFingerprint?.model) ? ((analysis.knnAiProbability ?? 0) > 30 ? colors.error : colors.authentic) : colors.textMuted, fontWeight: '700', flexShrink: 0 }}>
+            {(analysis.hasHardwareExif || analysis.metadataFingerprint?.make || analysis.metadataFingerprint?.model) ? `${analysis.knnAiProbability ?? 0}% AI Risk` : 'No EXIF Tags'}
           </Text>
         </View>
 

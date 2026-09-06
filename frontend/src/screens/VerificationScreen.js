@@ -216,7 +216,10 @@ export const VerificationScreen = ({ navigation, theme }) => {
   const handleUpload = async () => {
     try {
       setError(null);
-      const file = await FileService.pickFile();
+      let file = await FileService.pickImageFromGallery();
+      if (!file) {
+        file = await FileService.pickFile();
+      }
       if (file) {
         setUploadedFile({
           name: file.name,
@@ -224,6 +227,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
           type: file.mimeType,
           uri: file.uri,
           fullSize: file.size,
+          exif: file.exif || null,
         });
       }
     } catch (err) {
@@ -301,13 +305,17 @@ export const VerificationScreen = ({ navigation, theme }) => {
         }
       }
 
+      // Extract raw EXIF metadata provided by ImagePicker / file payload
+      const rawExif = targetFile?.exif || null;
+
       // Step 2: Run verification against AURA Backend
       setVerifyStep('Querying AURA Proof Ledger & verifying physics...');
       const metadataPayload = {
         fileName: targetFile?.name || 'shared_media.jpg',
         fileType: targetFile?.type || 'image/jpeg',
-        fileSize: targetFile?.fullSize || null,
+        fileSize: targetFile?.fullSize || targetFile?.size || null,
         uploadedAt: new Date().toISOString(),
+        exif: rawExif,
       };
 
       const [result, mlResponse] = await Promise.all([
@@ -318,7 +326,7 @@ export const VerificationScreen = ({ navigation, theme }) => {
           targetProofId
         ),
         base64Image
-          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type).catch((mlErr) => {
+          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type, rawExif).catch((mlErr) => {
               console.warn('[VerificationScreen] ML/Groq analysis warning:', mlErr.message);
               return { success: false, analysis: null, groq: null };
             })
