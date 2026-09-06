@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const VerificationResult = require('../models/VerificationResult');
 const Proof = require('../models/Proof');
 const { generateHash, compareHashes, formatProofId, generateImageHash, watermarkImage } = require('../utils/crypto');
-const { saveToLedger } = require('../utils/ledgerStore');
+const { saveToLedger, getLedgerProof } = require('../utils/ledgerStore');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
@@ -64,18 +64,23 @@ const verifyMedia = async (req, res) => {
           $or: [{ imageHash: safeUploadedHash }, { hash: safeUploadedHash }],
         });
       }
+    }
 
-      if (existingProof) {
-        proofFound = true;
-        matchedProofId = existingProof.proofId;
-        storedHash = existingProof.imageHash || existingProof.hash;
+    // Step 1b: If not found in DB or DB disconnected, check in-memory ledger cache
+    if (!existingProof && proofId) {
+      existingProof = getLedgerProof(proofId.trim());
+    }
 
-        // Compare uploaded image hash with stored proof image hash
-        if (safeUploadedHash) {
-          isExactMatch = (storedHash === safeUploadedHash);
-        } else {
-          isExactMatch = true;
-        }
+    if (existingProof) {
+      proofFound = true;
+      matchedProofId = existingProof.proofId;
+      storedHash = existingProof.imageHash || existingProof.hash;
+
+      // Compare uploaded image hash with stored proof image hash
+      if (safeUploadedHash) {
+        isExactMatch = (storedHash === safeUploadedHash);
+      } else {
+        isExactMatch = true;
       }
     }
 

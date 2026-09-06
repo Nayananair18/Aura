@@ -243,8 +243,8 @@ export const VerificationScreen = ({ navigation, theme }) => {
   const extractProofId = (text) => {
     if (!text) return '';
     const clean = text.trim();
-    // Matches AURA-XXXX-XXXX-XXXX pattern
-    const auraMatch = clean.match(/AURA-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}/i);
+    // Matches AURA-XXXX-XXXX-XXXX-XXXX pattern (supports 3+ hyphenated blocks)
+    const auraMatch = clean.match(/AURA(?:-[A-Za-z0-9]{4})+/i);
     if (auraMatch) return auraMatch[0].toUpperCase();
     
     // Or extract last component if URL
