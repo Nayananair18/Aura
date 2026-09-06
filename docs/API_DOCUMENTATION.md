@@ -159,12 +159,13 @@ Performs full forensic inspection (Metadata KNN, Visual ML, ELA, Screen Recaptur
 ---
 
 ### 5. `POST /api/media/analyze-metadata`
-Parses raw EXIF metadata and executes the 13-dimensional KNN classifier.
+Parses raw EXIF metadata, executes the 13-dimensional KNN classifier, and runs parallel Groq VLM image & screen-replay analysis.
 
 **Request Body (JSON)**:
 ```json
 {
-  "mediaData": "data:image/jpeg;base64,..."
+  "image": "data:image/jpeg;base64,...",
+  "fileName": "sample_photo.jpg"
 }
 ```
 
@@ -172,17 +173,32 @@ Parses raw EXIF metadata and executes the 13-dimensional KNN classifier.
 ```json
 {
   "success": true,
-  "isAiGenerated": false,
-  "aiProbability": 0.02,
-  "knnClassification": "REAL_CAMERA",
-  "featureVector": [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1],
-  "parsedMetadata": {
-    "make": "Apple",
-    "model": "iPhone 15 Pro",
-    "exposureTime": 0.008,
-    "fNumber": 1.78,
-    "iso": 80,
-    "focalLength": 6.86
+  "analysis": {
+    "classification": "REAL_CAMERA",
+    "aiProbability": 2.5,
+    "confidence": 97.5,
+    "screenScore": 0.05,
+    "metadataFingerprint": {
+      "Make": "Apple",
+      "Model": "iPhone 15 Pro",
+      "ExposureTime": 0.008,
+      "FNumber": 1.78,
+      "ISO": 80
+    }
+  },
+  "groq": {
+    "imageAnalysis": {
+      "success": true,
+      "aiProbability": 5.0,
+      "groqClassification": "REAL_CAMERA",
+      "reasoning": "Natural lens lighting dispersion and sensor noise consistent with physical optics."
+    },
+    "screenReplay": {
+      "success": true,
+      "isScreenReplay": false,
+      "confidence": 98.0,
+      "reasoning": "No pixel grid, moire interference, or monitor bezel artifacts detected."
+    }
   }
 }
 ```
