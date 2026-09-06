@@ -150,7 +150,16 @@ const generateAuthenticityProof = async (req, res) => {
       (realMlAnalysis?.screenScore ?? 0) >= 50
     );
     const isGroqScreenReplay = Boolean(groqAnalysis?.screenReplay?.isScreenReplay === true);
-    const isScreenRecaptureDetected = isMlScreenRecapture || isGroqScreenReplay;
+    const isGroqConfirmedRealWorld = Boolean(
+      groqAnalysis?.screenReplay?.success === true &&
+      groqAnalysis?.screenReplay?.isScreenReplay === false &&
+      (groqAnalysis?.screenReplay?.confidence ?? 0) >= 80
+    );
+
+    // Groq VLM semantic vision overrides heuristic false positives (e.g. keyboard keycaps, blinds, tiles)
+    const isScreenRecaptureDetected = isGroqConfirmedRealWorld 
+      ? false 
+      : (isGroqScreenReplay || isMlScreenRecapture);
 
     let finalAuraFlag = integrityAnalysis.auraFlag || 'GREEN';
     if (isScreenRecaptureDetected || (realMlAnalysis?.aiProbability ?? 0) >= 70) {
