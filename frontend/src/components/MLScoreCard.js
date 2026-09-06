@@ -341,7 +341,7 @@ export const MLScoreCard = ({ analysis, isRecaptured = false, screenConfidence =
                 <Text style={{ ...typography.callout, color: colors.error, fontWeight: '600' }}>Screen Recapture</Text>
               </View>
               <Text style={{ ...typography.callout, color: colors.error, fontWeight: '700' }}>
-                {(analysis.screenScore * 100).toFixed(0)}% Screen Score
+                {displayConfidence}% Screen Risk
               </Text>
             </View>
           </>
