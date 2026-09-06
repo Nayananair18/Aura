@@ -49,19 +49,19 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
   }
 
   const isReplay = screenReplay.isScreenReplay === true;
-  const isAiGen = imageAnalysis.groqClassification === 'AI_GENERATED';
-  const isRealCam = (imageAnalysis.groqClassification === 'REAL_CAMERA' || imageAnalysis.groqClassification === 'REAL_WORLD') && !isReplay;
+  const isAiGen = imageAnalysis.groqClassification === 'AI_GENERATED' || (imageAnalysis.aiProbability ?? 0) >= 50;
+  const isRealCam = !isAiGen && (imageAnalysis.groqClassification === 'REAL_CAMERA' || imageAnalysis.groqClassification === 'REAL_WORLD' || (imageAnalysis.aiProbability != null && imageAnalysis.aiProbability < 50));
   
-  const classColor = isReplay || isAiGen
+  const classColor = isAiGen
     ? colors.tampered || '#EF4444'
     : isRealCam
     ? colors.authentic || '#22C55E'
     : colors.warning || '#F59E0B';
 
-  const classBadgeBg = isReplay || isAiGen ? '#EF444420' : isRealCam ? '#22C55E20' : '#F59E0B20';
-  const classBadgeBorder = isReplay || isAiGen ? '#EF4444' : isRealCam ? '#22C55E' : '#F59E0B';
-  const classEmoji = isReplay ? '📺' : isAiGen ? '🤖' : isRealCam ? '📷' : '❓';
-  const classLabel = isReplay ? 'SCREEN REPLAY' : isAiGen ? 'AI GENERATED' : isRealCam ? 'REAL CAMERA' : (imageAnalysis.groqClassification || 'UNCERTAIN');
+  const classBadgeBg = isAiGen ? '#EF444420' : isRealCam ? '#22C55E20' : '#F59E0B20';
+  const classBadgeBorder = isAiGen ? '#EF4444' : isRealCam ? '#22C55E' : '#F59E0B';
+  const classEmoji = isAiGen ? '🤖' : isRealCam ? '📷' : '❓';
+  const classLabel = isAiGen ? 'AI GENERATED' : isRealCam ? 'REAL CAMERA' : (imageAnalysis.groqClassification || 'UNCERTAIN');
 
   const replayColor = isReplay ? (colors.tampered || '#EF4444') : (colors.authentic || '#22C55E');
   const replayBadgeBg = isReplay ? '#EF444420' : '#22C55E20';
@@ -117,17 +117,17 @@ export const GroqScoreCard = ({ groq, isLoading, theme }) => {
           </View>
 
           <Text style={{ ...typography.caption, color: colors.textMuted, fontWeight: '600' }}>
-            {isReplay ? (screenReplay.confidence ?? 95) : (imageAnalysis.confidence ?? 0)}% Confidence
+            {imageAnalysis.confidence ?? 95}% Confidence
           </Text>
         </View>
 
-        {/* AI / Replay Risk Stat */}
+        {/* AI Generation Risk Stat */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.xs }}>
           <Text style={{ ...typography.callout, color: colors.textSecondary }}>
-            {isReplay ? 'Replay Spoof Risk:' : 'AI Generation Risk:'}
+            AI Generation Risk:
           </Text>
           <Text style={{ ...typography.callout, color: classColor, fontWeight: '700' }}>
-            {isReplay ? `${screenReplay.confidence ?? 95}%` : `${imageAnalysis.aiProbability ?? 50}%`}
+            {imageAnalysis.aiProbability ?? 15}%
           </Text>
         </View>
 
