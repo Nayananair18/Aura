@@ -94,9 +94,8 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     backgroundColor: 'transparent',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.3,
     shadowRadius: 30,
-    elevation: 20,
   },
   title: {
     fontSize: 32,

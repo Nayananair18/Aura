@@ -6,6 +6,7 @@ const { generateHash, compareHashes } = require('../utils/crypto');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../analyzers/groqAnalyzer');
 
 /**
  * Check if MongoDB is connected and ready for writes
@@ -359,14 +360,65 @@ const analyzeMetadata = async (req, res) => {
       : null;
     const responseAnalysis = { ...restResult, metadataFingerprint: safeFingerprint };
 
-    res.json({
+    const mlAnalysisData = {
+      ...responseAnalysis,
+      fileName: fileName || 'unknown',
+      fileType: fileType || 'unknown',
+    };
+
+    const existingMLResponse = {
       success: true,
-      analysis: {
-        ...responseAnalysis,
-        fileName: fileName || 'unknown',
-        fileType: fileType || 'unknown',
-      },
+      analysis: mlAnalysisData,
+      ml: mlAnalysisData,
       message: `Image classified as ${result.classification} with ${result.confidence}% confidence`,
+    };
+
+    // Run Groq VLM image analysis and screen replay analysis in parallel
+    let groqResult = {
+      success: false,
+      aiProbability: 50,
+      groqClassification: 'UNKNOWN',
+      reasoning: 'Groq analysis not run',
+    };
+    let screenReplayResult = {
+      success: false,
+      isScreenReplay: false,
+      confidence: 0,
+      reasoning: 'Groq screen replay analysis not run',
+    };
+
+    try {
+      logger.info(`[Groq] Running parallel Groq VLM image & screen-replay analysis...`);
+      const [gRes, sRes] = await Promise.all([
+        analyzeWithGroq(buffer),
+        analyzeScreenReplayWithGroq(buffer),
+      ]);
+      if (gRes) groqResult = gRes;
+      if (sRes) screenReplayResult = sRes;
+    } catch (groqErr) {
+      logger.warn(`[Groq] Analysis failed non-fatally: ${groqErr.message}`);
+      groqResult = {
+        success: false,
+        aiProbability: 50,
+        groqClassification: 'UNKNOWN',
+        reasoning: `Groq error: ${groqErr.message}`,
+        error: groqErr.message,
+      };
+      screenReplayResult = {
+        success: false,
+        isScreenReplay: false,
+        confidence: 0,
+        reasoning: `Groq error: ${groqErr.message}`,
+        error: groqErr.message,
+      };
+    }
+
+    return res.json({
+      ...existingMLResponse,
+      groq: {
+        imageAnalysis: groqResult,
+        screenReplay: screenReplayResult,
+      },
     });
   } catch (error) {
     logger.error(`[ML] Metadata analysis error: ${error.message}`, { stack: error.stack });

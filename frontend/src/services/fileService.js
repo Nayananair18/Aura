@@ -377,12 +377,12 @@ export const saveToPhoneGallery = async (imageUri) => {
     // 1. Request write-only permissions (prevents requesting unused AUDIO permissions on Android)
     let permStatus = 'denied';
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync(false);
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
       permStatus = perm.status;
     } catch (pErr) {
       console.warn('[AURA Gallery] Permission request retry:', pErr.message);
       try {
-        const getPerm = await MediaLibrary.getPermissionsAsync(false);
+        const getPerm = await MediaLibrary.getPermissionsAsync(true);
         permStatus = getPerm.status;
       } catch (gErr) {
         permStatus = 'granted'; // Fallback for save-only mode

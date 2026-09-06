@@ -24,16 +24,28 @@ import * as FileSystem from 'expo-file-system/legacy';
 const getStableDeviceId = async () => {
   const DEVICE_ID_KEY = 'aura_device_id';
   try {
-    let deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+    let deviceId = null;
+    if (SecureStore && typeof SecureStore.getItemAsync === 'function') {
+      deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+    }
     if (!deviceId) {
-      // Generate a new cryptographic UUID and prefix it
-      const uuid = await Crypto.randomUUID();
+      let uuid;
+      if (Crypto && typeof Crypto.randomUUID === 'function') {
+        uuid = Crypto.randomUUID();
+      } else {
+        uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : ((r & 0x3) | 0x8);
+          return v.toString(16);
+        });
+      }
       deviceId = `DEVICE_${uuid.replace(/-/g, '').toUpperCase()}`;
-      await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
+      if (SecureStore && typeof SecureStore.setItemAsync === 'function') {
+        await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
+      }
     }
     return deviceId;
   } catch (err) {
-    // Fallback: use a session-scoped ID if SecureStore fails
     console.warn('[AURA] Could not access SecureStore for device ID:', err.message);
     return `DEVICE_SESSION_${Date.now()}`;
   }
@@ -419,7 +431,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
 
         const handleGenerateProof = async (photo, photoMetadata) => {
     try {
-      const telemetry = await SensorManager.getTelemetryPayload();
+      const telemetry = await (typeof SensorManager.getTelemetryPayload === 'function' ? SensorManager.getTelemetryPayload() : SensorManager.getSensorData());
       console.log('[FRONTEND SENSORS] Telemetry payload captured successfully');
       const sensorData = telemetry;
       let loc = sensorData?.location;
@@ -545,6 +557,8 @@ export const CaptureScreen = ({ navigation, theme }) => {
         auraFlag:        integrity.auraFlag || proofResponse?.proof?.integrityAnalysis?.auraFlag || 'GREEN',
       };
 
+      const status = proofResponse?.status || (integrity.auraFlag === 'GREEN' ? 'authentic' : (integrity.auraFlag === 'YELLOW' ? 'suspicious' : 'tampered'));
+
       setUploadProgress(100);
       navigation.navigate('Result', {
         status,
@@ -556,6 +570,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
         photoData: { ...photo, uri: finalPhotoUri, name: fileName },
         fileName,
         mlAnalysis: proofResponse?.proof?.mlAnalysis || mlResponse?.analysis || null,
+        groqAnalysis: proofResponse?.proof?.groq || mlResponse?.groq || null,
         galleryResult,
         isCaptureMode: true,
       });
@@ -575,7 +590,7 @@ export const CaptureScreen = ({ navigation, theme }) => {
       setUploadProgress(20);
       const savedPhoto = await FileService.saveCapturedPhoto(photo.uri);
       
-      const telemetry = await SensorManager.getTelemetryPayload();
+      const telemetry = await (typeof SensorManager.getTelemetryPayload === 'function' ? SensorManager.getTelemetryPayload() : SensorManager.getSensorData());
       console.log('[FRONTEND SENSORS] Telemetry payload captured successfully');
       const sensorData = telemetry;
       const loc = sensorData?.location;
