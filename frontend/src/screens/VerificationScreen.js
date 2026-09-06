@@ -323,7 +323,8 @@ export const VerificationScreen = ({ navigation, theme }) => {
           fileHash,
           metadataPayload,
           fileHash,
-          targetProofId
+          targetProofId,
+          base64Image
         ),
         base64Image
           ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type, rawExif).catch((mlErr) => {
