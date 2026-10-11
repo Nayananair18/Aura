@@ -24,6 +24,9 @@ const verificationRoutes = require('./routes/verification');
 
 const app = express();
 
+// Trust reverse proxy (Render, Cloudflare, Heroku) for accurate IP rate limiting
+app.set('trust proxy', 1);
+
 const dns = require('dns');
 
 // Use reliable public DNS for MongoDB SRV resolution (fixes Windows/ISP ECONNREFUSED on SRV records)

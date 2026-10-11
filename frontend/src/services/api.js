@@ -2,6 +2,8 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+const CLOUD_API_BASE_URL = 'https://aura-our8.onrender.com/api';
+
 const resolveApiBaseUrl = () => {
   // 1. Explicitly configured URL from .env takes top priority
   const envUrl =
@@ -25,32 +27,60 @@ const resolveApiBaseUrl = () => {
     return 'http://10.0.2.2:3001/api';
   }
 
-  return 'http://localhost:3001/api';
+  return CLOUD_API_BASE_URL;
 };
 
-const API_BASE_URL = resolveApiBaseUrl();
-console.log(`[AURA API] Gateway: ${API_BASE_URL}`);
+let currentApiBaseUrl = resolveApiBaseUrl();
+console.log(`[AURA API] Primary Gateway: ${currentApiBaseUrl}`);
 
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  // 45s timeout — proof generation involves sharp image processing & Groq VLM on server
-  timeout: 45000,
+  baseURL: currentApiBaseUrl,
+  // 90s timeout — proof generation involves sharp image processing, QR generation, & Groq VLM
+  timeout: 90000,
   headers: { 'Content-Type': 'application/json' },
 });
 
 // Request interceptor — log outgoing requests
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`[AURA API] → ${config.method?.toUpperCase()} ${config.url}`);
+    console.log(`[AURA API] → ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — unified error normalization
+// Response interceptor — unified error normalization & auto-failover
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+    const isNetworkError =
+      error?.message === 'Network Error' ||
+      error?.code === 'ERR_NETWORK' ||
+      (!error.response && error.code !== 'ECONNABORTED');
+
+    // Auto-failover: If primary local URL failed and not yet retried, switch to Cloud
+    if (isNetworkError && originalRequest && !originalRequest._retried) {
+      const isCurrentlyLocal =
+        currentApiBaseUrl.includes('192.168.') ||
+        currentApiBaseUrl.includes('10.') ||
+        currentApiBaseUrl.includes('localhost') ||
+        currentApiBaseUrl.includes('10.0.2.2');
+
+      const failoverUrl = isCurrentlyLocal ? CLOUD_API_BASE_URL : null;
+
+      if (failoverUrl && failoverUrl !== currentApiBaseUrl) {
+        console.warn(
+          `[AURA API] ⚠️ Connection to ${currentApiBaseUrl} failed. Auto-failing over to Cloud gateway: ${failoverUrl}`
+        );
+        originalRequest._retried = true;
+        currentApiBaseUrl = failoverUrl;
+        apiClient.defaults.baseURL = failoverUrl;
+        originalRequest.baseURL = failoverUrl;
+        return apiClient(originalRequest);
+      }
+    }
+
     const status = error.response?.status;
     let message = error.response?.data?.message;
     if (!message && Array.isArray(error.response?.data?.errors)) {
@@ -75,12 +105,24 @@ apiClient.interceptors.response.use(
 );
 
 const handleApiError = (actionName, error) => {
-  const isNetwork = error?.message === 'Network Error' || error?.code === 'ECONNABORTED' || !error?.response;
+  const isTimeout = error?.code === 'ECONNABORTED' || error?.message?.includes('timeout');
+  if (isTimeout) {
+    const timeoutError = new Error(
+      `[AURA API] Request timed out. The server is taking longer than expected to process forensics or waking up from sleep. Please try again.`
+    );
+    console.error(timeoutError.message);
+    throw timeoutError;
+  }
+
+  const isNetwork = error?.message === 'Network Error' || error?.code === 'ERR_NETWORK' || !error?.response;
   if (isNetwork) {
-    const unreachableError = new Error(`[AURA API] Backend server unreachable at ${API_BASE_URL}. Please ensure backend is running.`);
+    const unreachableError = new Error(
+      `[AURA API] Backend server unreachable at ${currentApiBaseUrl}. Please ensure backend is running and your device has network access.`
+    );
     console.error(unreachableError.message);
     throw unreachableError;
   }
+
   const data = error.response?.data;
   let msg = data?.message;
   if (!msg && Array.isArray(data?.errors)) {

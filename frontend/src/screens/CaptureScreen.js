@@ -517,13 +517,9 @@ export const CaptureScreen = ({ navigation, theme }) => {
       const mlBase64 = prep.base64 || rawBase64;
 
       setUploadProgress(85);
-      // Run proof generation and ML metadata analysis concurrently with enriched EXIF
-      const [proofResponse, mlResponse] = await Promise.all([
-        generateAuthenticityProof(prep.base64 || rawBase64, sensorData, metadata),
-        mlBase64
-          ? analyzeImageMetadata(mlBase64, fileName, 'image/jpeg', enrichedExif)
-          : Promise.resolve(null),
-      ]);
+      // Run authenticity proof generation (backend performs pixel ML forensics, Groq VLM analysis, and sensor cryptography)
+      const proofResponse = await generateAuthenticityProof(prep.base64 || rawBase64, sensorData, metadata);
+      const mlResponse = null;
       
       let finalPhotoUri = photo?.uri;
       let galleryResult = null;
