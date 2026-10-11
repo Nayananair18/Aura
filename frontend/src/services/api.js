@@ -3,7 +3,14 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const resolveApiBaseUrl = () => {
-  // Dynamically resolve local IP from Metro server in development mode
+  // 1. Explicitly configured URL from .env takes top priority
+  const envUrl =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.REACT_NATIVE_API_BASE_URL;
+
+  if (envUrl && envUrl.trim() !== '') return envUrl.trim();
+
+  // 2. Dynamically resolve local IP from Metro server in development mode
   const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
   if (hostUri && __DEV__ && Platform.OS !== 'web') {
     const host = hostUri.split(':')[0];
@@ -13,12 +20,7 @@ const resolveApiBaseUrl = () => {
     }
   }
 
-  const envUrl =
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
-    process.env.REACT_NATIVE_API_BASE_URL;
-
-  if (envUrl && envUrl.trim() !== '') return envUrl.trim();
-
+  // 3. Android emulator fallback
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:3001/api';
   }
@@ -50,12 +52,20 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    const message = error.response?.data?.message || error.message;
+    let message = error.response?.data?.message;
+    if (!message && Array.isArray(error.response?.data?.errors)) {
+      message = error.response.data.errors.map((e) => e.msg || e.message).join(', ');
+    }
+    if (!message) {
+      message = error.message;
+    }
 
     if (status === 429) {
       console.warn(`[AURA API] Rate limited. Retry after: ${error.response?.data?.retryAfter}`);
     } else if (status >= 500) {
       console.error(`[AURA API] Server error ${status}: ${message}`);
+    } else if (status === 400) {
+      console.error(`[AURA API] Bad Request (400): ${message}`);
     } else if (!error.response) {
       console.warn(`[AURA API] Network error: ${message}`);
     }
@@ -71,7 +81,17 @@ const handleApiError = (actionName, error) => {
     console.error(unreachableError.message);
     throw unreachableError;
   }
-  const msg = error.response?.data?.message || error.message || `${actionName} failed`;
+  const data = error.response?.data;
+  let msg = data?.message;
+  if (!msg && Array.isArray(data?.errors)) {
+    msg = data.errors.map((e) => e.msg || e.message).join(', ');
+  }
+  if (!msg && typeof data?.error === 'string') {
+    msg = data.error;
+  }
+  if (!msg) {
+    msg = error.message || `${actionName} failed`;
+  }
   console.error(`[AURA API] ${actionName} error:`, msg);
   throw new Error(msg);
 };

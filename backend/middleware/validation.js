@@ -4,14 +4,14 @@ const { body, validationResult } = require('express-validator');
  * Validate generate proof request (supports all 6 sensor types)
  */
 const validateGenerateProof = [
-  body('mediaData').optional(),
+  body('mediaData').optional({ nullable: true }),
   body('sensorData').isObject().withMessage('Sensor data is required'),
-  body('sensorData.accelerometer').isArray().optional(),
-  body('sensorData.gyroscope').isArray().optional(),
-  body('sensorData.magnetometer').isArray().optional(),
-  body('sensorData.light').isArray().optional(),
-  body('sensorData.location').isObject().optional(),
-  body('sensorData.timestamp').isObject().optional(),
+  body('sensorData.accelerometer').isArray().optional({ nullable: true }),
+  body('sensorData.gyroscope').isArray().optional({ nullable: true }),
+  body('sensorData.magnetometer').isArray().optional({ nullable: true }),
+  body('sensorData.light').isArray().optional({ nullable: true }),
+  body('sensorData.location').isObject().optional({ nullable: true }),
+  body('sensorData.timestamp').isObject().optional({ nullable: true }),
   body('metadata').isObject().withMessage('Metadata is required'),
   body('metadata.deviceId').notEmpty().withMessage('Device ID is required'),
   body('metadata.timestamp').notEmpty().withMessage('Timestamp is required'),

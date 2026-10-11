@@ -24,7 +24,14 @@ const verificationRoutes = require('./routes/verification');
 
 const app = express();
 
-// ==================== DATABASE CONNECTION ====================
+const dns = require('dns');
+
+// Use reliable public DNS for MongoDB SRV resolution (fixes Windows/ISP ECONNREFUSED on SRV records)
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (dnsErr) {
+  logger.warn(`DNS server configuration skipped: ${dnsErr.message}`);
+}
 
 const connectDatabase = async () => {
   try {
@@ -210,11 +217,11 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // ==================== PROCESS ERROR GUARDS ====================
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
+  logger.error(`Unhandled Rejection: ${reason?.message || reason}`, { reason });
 });
 
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception — shutting down', { error });
+  logger.error(`Uncaught Exception — shutting down: ${error?.message || error}`, { stack: error?.stack });
   process.exit(1);
 });
 

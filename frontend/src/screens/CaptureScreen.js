@@ -455,6 +455,10 @@ export const CaptureScreen = ({ navigation, theme }) => {
         }
       }
 
+      if (loc && sensorData) {
+        sensorData.location = loc;
+      }
+
       // Read the raw photo as base64 BEFORE any image manipulation.
       let rawBase64 = null;
       try {
