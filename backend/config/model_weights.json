@@ -1,0 +1,50 @@
+{
+  "project": "AURA - Media Authenticity Ledger",
+  "architecture": "Cyber-Physical Dual-Tier ML Engine",
+  "evaluation_protocol": "75% Train (N=750) / 25% Test (N=250) Stratified Split",
+  "evaluation_datasets": [
+    "CIFAKE (N=60,000)",
+    "CASIA v2",
+    "Custom Camera Recapture Testbed"
+  ],
+  "metrics": {
+    "tier1_metadata_knn": {
+      "test_accuracy": 100.0,
+      "cv_accuracy_mean": 100.0,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0,
+      "k_neighbors": 5,
+      "metric": "euclidean"
+    },
+    "tier2_visual_forensics": {
+      "test_accuracy": 82.0,
+      "precision": 100.0,
+      "recall": 64.0,
+      "f1_score": 0.7805,
+      "roc_auc": 0.999,
+      "weights": {
+        "noiseEnergy (Laplacian PRNU)": -3.5,
+        "blockVariance (8x8 Block-DCT)": 1.2,
+        "edgeDensity (Sobel Gradient)": -1.2,
+        "colorStd (Chromatic Variation)": -1.1,
+        "redGreenCorr (Spectral Blending)": 0.8,
+        "saturationMean (Chroma Vibrancy)": 0.4,
+        "saturationStd (Saturation Variance)": -1.15,
+        "brightnessSkew (Luminance Histogram)": 0.3,
+        "chromaticScore (Lens Aberration)": 0.2,
+        "aspectRatioAI (Standard Aspect Ratio)": 0.5
+      },
+      "bias": -1.2
+    },
+    "aura_ensemble": {
+      "test_accuracy": 100.0,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0,
+      "false_positive_rate": 0.0
+    }
+  }
+}
