@@ -1,52 +1,22 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { pingBackend } from '../services/api';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Header } from '../components/Header';
-import * as Google from 'expo-auth-session/providers/google';
-import * as GoogleDrive from '../services/googleDriveService';
 
 export const HomeScreen = ({ navigation, theme }) => {
   const [isConnected, setIsConnected] = useState(false);
-  const [driveAuthenticated, setDriveAuthenticated] = useState(false);
   const styles = getStyles(theme);
   const { colors } = theme;
-
-  const authConfig = useMemo(() => GoogleDrive.getDriveAuthConfig(), []);
-  const [request, response, promptAsync] = Google.useAuthRequest(authConfig);
 
   useEffect(() => {
     const checkConnection = async () => {
       const result = await pingBackend();
       setIsConnected(result.status === 'connected');
-      
-      const driveAuth = await GoogleDrive.isAuthenticated();
-      setDriveAuthenticated(driveAuth);
     };
     checkConnection();
   }, []);
-
-  useEffect(() => {
-    if (response) {
-      console.log('\n[Google Auth] Session Response:', response.type);
-      if (response.type === 'error') {
-        console.error('[Google Auth] Error Details:', response.error);
-      }
-    }
-    if (response?.type === 'success') {
-      const { access_token } = response.params;
-      GoogleDrive.storeAuthToken(access_token).then(() => {
-        setDriveAuthenticated(true);
-        console.log('[Google Auth] ✅ Login Successful');
-      });
-    }
-  }, [response]);
-
-  const handleDriveLogout = async () => {
-    await GoogleDrive.logout();
-    setDriveAuthenticated(false);
-  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -83,29 +53,6 @@ export const HomeScreen = ({ navigation, theme }) => {
           onPress={() => navigation.navigate('Verify')}
           theme={theme}
         />
-
-        {/* Cloud Storage */}
-        <Text style={styles.sectionLabel}>CLOUD STORAGE</Text>
-        <Card theme={theme}>
-          <View style={[styles.actionRow, { paddingVertical: theme.spacing.xs }]}>
-            <View style={styles.actionInfo}>
-              <Text style={styles.actionIcon}>📁</Text>
-              <View style={{ flex: 1, paddingRight: theme.spacing.xs }}>
-                <Text style={[styles.actionTitle, { fontSize: 15 }]}>Google Drive</Text>
-                <Text style={styles.actionDesc}>
-                  {driveAuthenticated ? 'Connected. Auto-sync enabled.' : 'Auto-save captured photos.'}
-                </Text>
-              </View>
-            </View>
-            <Button
-              title={driveAuthenticated ? "Disconnect" : "Connect"}
-              variant={driveAuthenticated ? "ghost" : "primary"}
-              size="small"
-              onPress={() => driveAuthenticated ? handleDriveLogout() : promptAsync()}
-              theme={theme}
-            />
-          </View>
-        </Card>
 
         {/* How it Works - Verification Layers */}
         <Text style={styles.sectionLabel}>VERIFICATION LAYERS</Text>

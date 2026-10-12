@@ -8,7 +8,6 @@ import { LoadingSpinner } from '../components/Indicators';
 import { PulseDot, SensorGraph } from '../components/SensorGraph';
 import { generateAuthenticityProof } from '../services/api';
 import * as FileService from '../services/fileService';
-import * as GoogleDrive from '../services/googleDriveService';
 import SensorManager, { SensorManager as SensorManagerClass } from '../services/sensorManager';
 import { applyAuraWatermark } from '../utils/watermark';
 import * as SecureStore from 'expo-secure-store';
@@ -630,22 +629,12 @@ export const CaptureScreen = ({ navigation, theme }) => {
       SensorManager.stopCollecting();
       setIsCaptureActive(false);
 
-      setUploadProgress(50);
-      let driveResult = null;
-      try {
-        driveResult = await GoogleDrive.uploadToGoogleDrive(savedPhoto.uri, savedPhoto.name, 'image/jpeg');
-      } catch (driveErr) {
-        console.warn('[CaptureScreen] Google Drive upload skipped/fallback:', driveErr.message);
-      }
       setUploadProgress(70);
       const metadata = {
         timestamp: savedPhoto.timestamp,
         photoUri: savedPhoto.uri,
         fileName: savedPhoto.name,
-        driveFileId: driveResult?.fileId || null,
-        driveLink: driveResult?.webViewLink || null,
         uploadedAt: new Date().toISOString(),
-        isDemoMode: Boolean(driveResult?.isDemoMode),
         exif: savedPhoto.exif,
       };
       try {

@@ -2,10 +2,7 @@
   "expo": {
     "name": "AURA",
     "slug": "aura-reality-proof",
-    "scheme": [
-      "aura",
-      "com.googleusercontent.apps.1087877092720-v0q4ir0phhg6uj6hnrh8i5ich3dqobgd"
-    ],
+    "scheme": "aura",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/authenticity.png",

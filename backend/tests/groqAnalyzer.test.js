@@ -12,7 +12,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
 
   test('should return safe failure response when GROQ_API_KEY is not set', async () => {
     delete process.env.GROQ_API_KEY;
-    const { analyzeWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeWithGroq } = require('./groqAnalyzer');
 
     const sampleBuffer = Buffer.from('fake-image-bytes');
     const result = await analyzeWithGroq(sampleBuffer);
@@ -26,7 +26,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
 
   test('should return safe failure response for screen replay when GROQ_API_KEY is not set', async () => {
     delete process.env.GROQ_API_KEY;
-    const { analyzeScreenReplayWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeScreenReplayWithGroq } = require('./groqAnalyzer');
 
     const sampleBuffer = Buffer.from('fake-image-bytes');
     const result = await analyzeScreenReplayWithGroq(sampleBuffer);
@@ -40,7 +40,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
 
   test('should reject images larger than MAX_BASE64_BYTES (~4MB)', async () => {
     process.env.GROQ_API_KEY = 'gsk_test_key_123';
-    const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('./groqAnalyzer');
 
     const largeBuffer = Buffer.alloc(4 * 1024 * 1024);
 
@@ -72,7 +72,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
       }));
     });
 
-    const { analyzeWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeWithGroq } = require('./groqAnalyzer');
     const sampleBuffer = Buffer.from('test-image-data');
     const result = await analyzeWithGroq(sampleBuffer);
 
@@ -102,7 +102,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
       }));
     });
 
-    const { analyzeWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeWithGroq } = require('./groqAnalyzer');
     const sampleBuffer = Buffer.from('test-image-data');
     const result = await analyzeWithGroq(sampleBuffer);
 
@@ -132,7 +132,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
       }));
     });
 
-    const { analyzeScreenReplayWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeScreenReplayWithGroq } = require('./groqAnalyzer');
     const sampleBuffer = Buffer.from('test-screen-replay-image');
     const result = await analyzeScreenReplayWithGroq(sampleBuffer);
 
@@ -161,7 +161,7 @@ describe('groqAnalyzer Unit & Integration Tests', () => {
       }));
     });
 
-    const { analyzeWithGroq } = require('../analyzers/groqAnalyzer');
+    const { analyzeWithGroq } = require('./groqAnalyzer');
     const sampleBuffer = Buffer.from('test-image-data');
     const result = await analyzeWithGroq(sampleBuffer);
 

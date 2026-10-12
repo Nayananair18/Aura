@@ -15,7 +15,7 @@ const { saveToLedger, getLedgerProof } = require('../utils/ledgerStore');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
-const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../analyzers/groqAnalyzer');
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../tests/groqAnalyzer');
 
 /**
  * Check if MongoDB is connected and ready for writes

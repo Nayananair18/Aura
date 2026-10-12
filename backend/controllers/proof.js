@@ -15,7 +15,7 @@ const {
 const logger = require("../utils/logger");
 const { saveToLedger } = require("../utils/ledgerStore");
 const { analyzeImageMetadata } = require("../utils/metadataAnalyzer");
-const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require("../analyzers/groqAnalyzer");
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require("../tests/groqAnalyzer");
 
 // Max base64 image size: ~8MB (covers a full 6MP JPEG at quality 95)
 const MAX_MEDIA_SIZE_BYTES = 8 * 1024 * 1024;
