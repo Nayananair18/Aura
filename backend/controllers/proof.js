@@ -201,10 +201,16 @@ const generateAuthenticityProof = async (req, res) => {
       ? false 
       : (isGroqScreenReplay || isMlScreenRecapture);
 
+    const groqAiProb = groqAnalysis?.imageAnalysis?.success ? (groqAnalysis?.imageAnalysis?.aiProbability ?? 0) : 0;
+    const isGroqAiDetected = Boolean(
+      groqAnalysis?.imageAnalysis?.success &&
+      (groqAnalysis?.imageAnalysis?.groqClassification === 'AI_GENERATED' || groqAiProb >= 70)
+    );
+
     let finalAuraFlag = integrityAnalysis.auraFlag || 'GREEN';
-    if (isScreenRecaptureDetected || (realMlAnalysis?.aiProbability ?? 0) >= 70) {
+    if (isScreenRecaptureDetected || (realMlAnalysis?.aiProbability ?? 0) >= 70 || isGroqAiDetected) {
       finalAuraFlag = 'RED';
-    } else if ((realMlAnalysis?.aiProbability ?? 0) >= 25 && finalAuraFlag === 'GREEN') {
+    } else if (((realMlAnalysis?.aiProbability ?? 0) >= 25 || groqAiProb >= 35) && finalAuraFlag === 'GREEN') {
       finalAuraFlag = 'YELLOW';
     }
 
@@ -225,13 +231,20 @@ const generateAuthenticityProof = async (req, res) => {
     const sensorResult = integrityAnalysis;
     const screenDefensePassed = finalAuraFlag === 'GREEN';
     const sensorsPassed = validSensors;
-    const aiProbability = realMlAnalysis?.aiProbability ?? 0;
+    const aiProbability = Math.max(
+      realMlAnalysis?.aiProbability ?? 0,
+      groqAiProb
+    );
     const finalClassification = isScreenRecaptureDetected 
       ? 'SCREEN_RECAPTURE' 
-      : (realMlAnalysis?.classification || (finalAuraFlag === 'GREEN' ? 'REAL_CAMERA' : 'UNCERTAIN'));
+      : (isGroqAiDetected 
+          ? 'AI_GENERATED' 
+          : (realMlAnalysis?.classification || (finalAuraFlag === 'GREEN' ? 'REAL_CAMERA' : 'UNCERTAIN')));
     const failureReason = isScreenRecaptureDetected 
       ? 'Photo of a digital screen detected (Optical PWM flicker & subpixel grid interference)' 
-      : (finalAuraFlag === 'RED' ? 'Sensor integrity anomaly detected' : null);
+      : (isGroqAiDetected 
+          ? 'Synthetic AI generation detected by forensic vision analysis' 
+          : (finalAuraFlag === 'RED' ? 'Sensor integrity anomaly detected' : null));
 
     // Standardized Proof Document for MongoDB and In-Memory Ledger
     const proofDoc = {
@@ -239,7 +252,11 @@ const generateAuthenticityProof = async (req, res) => {
       sha256Hash: finalImageHash || proofHash,
       imageHash: finalImageHash,
       hash: proofHash,
-      metadata: realMlAnalysis?.metadataFingerprint || metadata?.exif || metadata || {},
+      metadata: {
+        ...(realMlAnalysis?.metadataFingerprint || metadata?.exif || metadata || {}),
+        groq: groqAnalysis,
+        ml: realMlAnalysis,
+      },
       metadataFingerprint: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       exif: realMlAnalysis?.metadataFingerprint || metadata?.exif || {},
       mlAnalysis: realMlAnalysis,
@@ -277,7 +294,7 @@ const generateAuthenticityProof = async (req, res) => {
             {
               imageData: watermarkedImage,
               imageHash: finalImageHash,
-              status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
+              status: finalAuraFlag === 'GREEN' ? 'authentic' : 'tampered',
             }
           );
           persistedToDb = true;
@@ -288,10 +305,14 @@ const generateAuthenticityProof = async (req, res) => {
             hash: proofHash,
             imageHash: finalImageHash,
             sensorData,
-            metadata,
+            metadata: {
+              ...metadata,
+              groq: groqAnalysis,
+              ml: realMlAnalysis,
+            },
             confidence: overallConfidence,
             integrityScore: integrityAnalysis.overallScore,
-            status: integrityAnalysis.auraFlag === 'GREEN' ? 'authentic' : 'tampered',
+            status: finalAuraFlag === 'GREEN' ? 'authentic' : 'tampered',
             imageData: watermarkedImage,
           });
           await proofDocument.save();

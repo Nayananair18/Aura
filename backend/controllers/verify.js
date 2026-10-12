@@ -96,6 +96,7 @@ const verifyMedia = async (req, res) => {
     const imagePayload = image || metadata?.image || null;
     let autoCertifiedProof = null;
     let isExternalScreenRecapture = false;
+    let isExternalAiGenerated = false;
     let externalAnalysisResults = null;
 
     if (!existingProof && imagePayload) {
@@ -128,12 +129,20 @@ const verifyMedia = async (req, res) => {
             : (isGroqScreenReplay || isMlScreenRecapture);
 
           const aiProb = mlRes?.aiProbability ?? 0;
+          const groqAiProb = groqRes?.success ? (groqRes.aiProbability ?? 0) : 0;
+          const isGroqAiDetected = Boolean(
+            groqRes?.success && 
+            (groqRes.groqClassification === 'AI_GENERATED' || groqAiProb >= 70)
+          );
           const isRealCamClass = mlRes?.classification === 'REAL_CAMERA' || mlRes?.classification === 'AUTHENTIC_CAMERA' || groqRes?.groqClassification === 'REAL_CAMERA' || groqRes?.groqClassification === 'REAL_WORLD';
 
           if (isScreenRecaptureDetected) {
             isExternalScreenRecapture = true;
-            logger.warn(`🔴 External upload rejected: Screen recapture detected (ML score: ${mlRes?.screenScore || 0})`);
-          } else if (aiProb <= 25 && isRealCamClass) {
+            logger.warn(`🔴 External upload rejected: Screen recapture detected (ML score: ${mlRes?.screenScore || 0}, Groq replay: ${isGroqScreenReplay})`);
+          } else if (isGroqAiDetected || aiProb >= 70) {
+            isExternalAiGenerated = true;
+            logger.warn(`🔴 External upload rejected: AI generation detected (Groq: ${groqAiProb}%, ML: ${aiProb}%)`);
+          } else if (aiProb <= 25 && groqAiProb <= 35 && isRealCamClass) {
             // Forensic ML & Groq VLM confirm real camera photo with 0% screen risk and low AI risk (<= 25%)
             const newProofId = formatProofId();
             const baseUrl = process.env.VERIFICATION_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://aura-app.com/verify';
@@ -200,7 +209,15 @@ const verifyMedia = async (req, res) => {
       ? (isExactMatch ? 100 : 15.0) 
       : 0;
 
-    const confidence = isExactMatch ? 99.7 : (proofFound ? 15.0 : (isExternalScreenRecapture ? 95.0 : 0));
+    const confidence = isExactMatch 
+      ? 99.7 
+      : (proofFound 
+          ? 15.0 
+          : (isExternalScreenRecapture 
+              ? (externalAnalysisResults?.screenReplayRes?.confidence || 95.0) 
+              : (isExternalAiGenerated 
+                  ? Math.max(externalAnalysisResults?.groqRes?.aiProbability || 0, externalAnalysisResults?.mlRes?.aiProbability || 0, 90.0) 
+                  : 0)));
 
     let status;
     let auraFlag;
@@ -226,6 +243,11 @@ const verifyMedia = async (req, res) => {
       auraFlag = 'RED';
       message = '🔴 SCREEN RECAPTURE DETECTED';
       statusDetails = 'External image rejected: Optical subpixel grid and PWM flicker interference detected (No AURA tag issued)';
+    } else if (isExternalAiGenerated) {
+      status = 'tampered';
+      auraFlag = 'RED';
+      message = '✗ AI-GENERATED MEDIA DETECTED';
+      statusDetails = 'External image rejected: Synthetic generative AI patterns detected in image forensics (No AURA tag issued)';
     } else {
       status = 'unverified';
       auraFlag = 'YELLOW';
@@ -250,7 +272,7 @@ const verifyMedia = async (req, res) => {
         uploadedHash: safeUploadedHash ? safeUploadedHash.substring(0, 16) + '...' : 'none',
         storedHash: storedHash ? storedHash.substring(0, 16) + '...' : 'none (Unregistered)',
       },
-      sensorValidation: isExactMatch ? 'passed' : (proofFound || isExternalScreenRecapture ? 'failed' : 'unknown'),
+      sensorValidation: isExactMatch ? 'passed' : (proofFound || isExternalScreenRecapture || isExternalAiGenerated ? 'failed' : 'unknown'),
       metadataConsistency: isExactMatch ? 'consistent' : 'unknown',
       timestamp: new Date().toISOString(),
       screenDefense: {

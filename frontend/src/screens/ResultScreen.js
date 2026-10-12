@@ -5,7 +5,6 @@ import { Card, SectionTitle } from '../components/Card';
 import { EvidenceCard } from '../components/EvidenceCard';
 import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
-import { GroqScoreCard } from '../components/GroqScoreCard';
 import { QrCode } from '../components/QrCode';
 import * as FileService from '../services/fileService';
 
@@ -408,7 +407,14 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     : (isRecaptured || screenCaptureByML || Boolean(resolvedGroq?.screenReplay?.isScreenReplay));
 
   const hashValid = isCaptureMode ? true : isHashMatch;
-  const aiProbability = mlAnalysis?.aiProbability ?? 0;
+  const mlAiProbability = mlAnalysis?.aiProbability ?? 0;
+  const groqAiProb = resolvedGroq?.imageAnalysis?.success ? (resolvedGroq?.imageAnalysis?.aiProbability ?? 0) : 0;
+  const isGroqAiDetected = Boolean(
+    resolvedGroq?.imageAnalysis?.success &&
+    (resolvedGroq?.imageAnalysis?.groqClassification === 'AI_GENERATED' || groqAiProb >= 70)
+  );
+  const effectiveAiProbability = Math.max(mlAiProbability, groqAiProb);
+
   const screenFailed = verification.screenDefense?.result === 'failed' || verification.screenDefense?.isRecaptured === true;
   const physicsFailed = verification.physicsDefense?.result === 'failed';
   const hasHardwareExif = Boolean(
@@ -420,16 +426,16 @@ export const ResultScreen = ({ route, navigation, theme }) => {
   let evaluatedFlag = 'GREEN';
 
   // PRIORITY 1: Screen replay attack, tampered status, high AI probability, or failed screen/physics defenses trigger RED flag regardless of capture mode
-  if (isScreenReplayAttack || status === 'tampered' || aiProbability >= 70 || screenFailed || physicsFailed) {
+  if (isScreenReplayAttack || status === 'tampered' || effectiveAiProbability >= 70 || isGroqAiDetected || screenFailed || physicsFailed) {
     evaluatedFlag = 'RED';
   } else if (isCaptureMode) {
     evaluatedFlag = 'GREEN';
-  } else if (!isHashMatch && aiProbability >= 70) {
+  } else if (!isHashMatch && effectiveAiProbability >= 70) {
     evaluatedFlag = 'RED';
   } else if (!isHashMatch) {
     // Unregistered external upload without authentic ledger proof -> YELLOW (Unverified External Media)
     evaluatedFlag = 'YELLOW';
-  } else if (status === 'unverified' || !hasHardwareExif || aiProbability >= 25) {
+  } else if (status === 'unverified' || !hasHardwareExif || effectiveAiProbability >= 25) {
     evaluatedFlag = 'YELLOW';
   } else {
     evaluatedFlag = 'GREEN';
@@ -448,7 +454,13 @@ export const ResultScreen = ({ route, navigation, theme }) => {
     ? parseFloat(Number(resolvedScreenConfidence).toFixed(1))
     : (verification.confidence != null 
         ? parseFloat(Number(verification.confidence).toFixed(1))
-        : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : (aiProbability >= 70 ? parseFloat(Number(aiProbability).toFixed(1)) : 95.0))));
+        : (isAuthentic ? 99.7 : (isUncertain ? 50.0 : (effectiveAiProbability >= 70 ? parseFloat(Number(effectiveAiProbability).toFixed(1)) : 95.0))));
+
+  const effectiveMlAnalysis = mlAnalysis ? {
+    ...mlAnalysis,
+    aiProbability: effectiveAiProbability,
+    classification: isGroqAiDetected ? 'AI_GENERATED' : mlAnalysis.classification,
+  } : null;
   const activeProofId = proof.id || verification.proofId || 'AURA-VERIFIED';
 
   const displayHashMatch = isCaptureMode
@@ -547,24 +559,16 @@ export const ResultScreen = ({ route, navigation, theme }) => {
           </Card>
         )}
 
-        {/* ML Metadata Analysis */}
-        {mlAnalysis && (
+        {/* AI Detection Analysis */}
+        {effectiveMlAnalysis && (
           <View style={styles.sectionBlock}>
             <SectionTitle title="AI DETECTION ANALYSIS" theme={theme} />
             <MLScoreCard 
-              analysis={mlAnalysis} 
+              analysis={effectiveMlAnalysis} 
               isRecaptured={isScreenReplayAttack}
               screenConfidence={resolvedScreenConfidence}
               theme={theme} 
             />
-          </View>
-        )}
-
-        {/* Groq VLM Analysis */}
-        {Boolean(resolvedGroq) && (
-          <View style={styles.sectionBlock}>
-            <SectionTitle title="GROQ VLM ANALYSIS" theme={theme} />
-            <GroqScoreCard groq={resolvedGroq} theme={theme} />
           </View>
         )}
 

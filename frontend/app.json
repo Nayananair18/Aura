@@ -49,7 +49,6 @@
     },
     "plugins": [
       "expo-secure-store",
-      "react-native-image-marker",
       [
         "expo-media-library",
         {
