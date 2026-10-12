@@ -6,6 +6,7 @@ import { EvidenceCard } from '../components/EvidenceCard';
 import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
 import { QrCode } from '../components/QrCode';
+import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
 
 // ── Sub-components & Helpers ──
