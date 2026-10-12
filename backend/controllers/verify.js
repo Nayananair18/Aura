@@ -108,6 +108,8 @@ const verifyMedia = async (req, res) => {
             analyzeScreenReplayWithGroq(targetBuffer).catch(() => null),
           ]);
 
+          externalAnalysisResults = { mlRes, groqRes, screenReplayRes };
+
           const isMlScreenRecapture = Boolean(
             mlRes?.classification === 'SCREEN_RECAPTURE' ||
             mlRes?.classification === 'SCREEN_REPLAY' ||
@@ -130,7 +132,6 @@ const verifyMedia = async (req, res) => {
 
           if (isScreenRecaptureDetected) {
             isExternalScreenRecapture = true;
-            externalAnalysisResults = { mlRes, groqRes, screenReplayRes };
             logger.warn(`🔴 External upload rejected: Screen recapture detected (ML score: ${mlRes?.screenScore || 0})`);
           } else if (aiProb <= 25 && isRealCamClass) {
             // Forensic ML & Groq VLM confirm real camera photo with 0% screen risk and low AI risk (<= 25%)
@@ -289,6 +290,8 @@ const verifyMedia = async (req, res) => {
         groq: { imageAnalysis: externalAnalysisResults.groqRes, screenReplay: externalAnalysisResults.screenReplayRes },
         ml: externalAnalysisResults.mlRes,
       } : null),
+      ml: existingProof?.metadata?.ml || externalAnalysisResults?.mlRes || null,
+      groq: existingProof?.metadata?.groq || (externalAnalysisResults ? { imageAnalysis: externalAnalysisResults.groqRes, screenReplay: externalAnalysisResults.screenReplayRes } : null),
     };
 
     logger.info(`Verification complete: ${verificationId} — ${status} (ProofID: ${matchedProofId || 'none'})`);

@@ -1,13 +1,12 @@
 import { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
-import { Card, MetadataItem, SectionTitle } from '../components/Card';
+import { Card, SectionTitle } from '../components/Card';
 import { EvidenceCard } from '../components/EvidenceCard';
 import { Header } from '../components/Header';
 import { MLScoreCard } from '../components/MLScoreCard';
 import { GroqScoreCard } from '../components/GroqScoreCard';
 import { QrCode } from '../components/QrCode';
-import { SensorGraph } from '../components/SensorGraph';
 import * as FileService from '../services/fileService';
 
 // ── Sub-components & Helpers ──

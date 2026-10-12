@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 import { Card, SectionTitle } from '../components/Card';
 import { Header } from '../components/Header';
 import { LoadingSpinner } from '../components/Indicators';
-import { analyzeImageMetadata, storeVerificationResult, verifyMedia, verifyProofId } from '../services/api';
+import { storeVerificationResult, verifyMedia } from '../services/api';
 import * as FileService from '../services/fileService';
 import { prepareImageForVerification } from '../utils/watermark';
 
@@ -318,21 +318,14 @@ export const VerificationScreen = ({ navigation, theme }) => {
         exif: rawExif,
       };
 
-      const [result, mlResponse] = await Promise.all([
-        verifyMedia(
-          fileHash,
-          metadataPayload,
-          fileHash,
-          targetProofId,
-          base64Image
-        ),
+      const result = await verifyMedia(
+        fileHash,
+        metadataPayload,
+        fileHash,
+        targetProofId,
         base64Image
-          ? analyzeImageMetadata(base64Image, targetFile.name, targetFile.type, rawExif).catch((mlErr) => {
-              console.warn('[VerificationScreen] ML/Groq analysis warning:', mlErr.message);
-              return { success: false, analysis: null, groq: null };
-            })
-          : Promise.resolve({ success: false, analysis: null, groq: null }),
-      ]);
+      );
+      const mlResponse = null;
 
             // Step 3: Store verification result in ledger
       setVerifyStep('Recording verification result...');
@@ -358,8 +351,8 @@ export const VerificationScreen = ({ navigation, theme }) => {
         fileName: targetFile?.name || targetProofId || 'Shared Media',
         photoData: targetFile ? { uri: targetFile.uri, name: targetFile.name, size: targetFile.fullSize } : null,
         sensorData: result.verification?.proofDetails?.sensorData || null,
-        mlAnalysis: mlResponse?.analysis || result.verification?.proofDetails?.ml || null,
-        groqAnalysis: mlResponse?.groq || result.verification?.proofDetails?.groq || null,
+        mlAnalysis: result.verification?.ml || result.verification?.proofDetails?.ml || null,
+        groqAnalysis: result.verification?.groq || result.verification?.proofDetails?.groq || null,
         isCaptureMode: false,
       });
     } catch (err) {

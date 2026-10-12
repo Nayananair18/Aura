@@ -5,33 +5,34 @@ import { Platform } from 'react-native';
 const CLOUD_API_BASE_URL = 'https://aura-our8.onrender.com/api';
 
 const resolveApiBaseUrl = () => {
-  // 1. Explicitly configured URL from .env takes top priority
+  // 1. In local development mode, dynamically resolve computer's LAN IP from Metro server
+  // This ensures that whenever you switch Wi-Fi or hotspot, it automatically connects to your local machine!
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
+  if (__DEV__ && hostUri && Platform.OS !== 'web') {
+    const host = hostUri.split(':')[0];
+    if (host && !host.includes('exp.direct') && !host.includes('ngrok')) {
+      return `http://${host}:3001/api`;
+    }
+  }
+
+  // 2. Explicitly configured URL from .env (e.g. for tunnel or staging)
   const envUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.REACT_NATIVE_API_BASE_URL;
 
   if (envUrl && envUrl.trim() !== '') return envUrl.trim();
 
-  // 2. Dynamically resolve local IP from Metro server in development mode
-  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
-  if (hostUri && __DEV__ && Platform.OS !== 'web') {
-    const host = hostUri.split(':')[0];
-    // If running in tunnel mode, host is non-numeric domain
-    if (host && !host.includes('exp.direct') && !host.includes('ngrok')) {
-      return `http://${host}:3001/api`;
-    }
-  }
-
-  // 3. Android emulator fallback
-  if (Platform.OS === 'android') {
+  // 3. Android emulator fallback in development
+  if (Platform.OS === 'android' && __DEV__) {
     return 'http://10.0.2.2:3001/api';
   }
 
+  // 4. Default to deployed cloud URL in production / release builds
   return CLOUD_API_BASE_URL;
 };
 
 let currentApiBaseUrl = resolveApiBaseUrl();
-console.log(`[AURA API] Primary Gateway: ${currentApiBaseUrl}`);
+console.log(`[AURA API] Gateway: ${currentApiBaseUrl}`);
 
 const apiClient = axios.create({
   baseURL: currentApiBaseUrl,
@@ -49,7 +50,7 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — unified error normalization & auto-failover
+// Response interceptor — unified error normalization
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -59,8 +60,8 @@ apiClient.interceptors.response.use(
       error?.code === 'ERR_NETWORK' ||
       (!error.response && error.code !== 'ECONNABORTED');
 
-    // Auto-failover: If primary local URL failed and not yet retried, switch to Cloud
-    if (isNetworkError && originalRequest && !originalRequest._retried) {
+    // In production builds only, auto-failover to cloud if a local endpoint was configured
+    if (!__DEV__ && isNetworkError && originalRequest && !originalRequest._retried) {
       const isCurrentlyLocal =
         currentApiBaseUrl.includes('192.168.') ||
         currentApiBaseUrl.includes('10.') ||
@@ -71,7 +72,7 @@ apiClient.interceptors.response.use(
 
       if (failoverUrl && failoverUrl !== currentApiBaseUrl) {
         console.warn(
-          `[AURA API] ⚠️ Connection to ${currentApiBaseUrl} failed. Auto-failing over to Cloud gateway: ${failoverUrl}`
+          `[AURA API] ⚠️ Connection to ${currentApiBaseUrl} failed. Switching to Cloud gateway: ${failoverUrl}`
         );
         originalRequest._retried = true;
         currentApiBaseUrl = failoverUrl;
@@ -204,7 +205,7 @@ export const pingBackend = async () => {
     console.log('[AURA API] 💓 Backend handshake successful.');
     return response.data;
   } catch (error) {
-    console.warn(`[AURA API] 💔 Backend unreachable at ${API_BASE_URL}: ${error.message}`);
+    console.warn(`[AURA API] 💔 Backend unreachable at ${currentApiBaseUrl}: ${error.message}`);
     return { status: 'disconnected', error: error.message };
   }
 };
