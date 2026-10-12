@@ -140,7 +140,34 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
+  // Client disconnection / aborted request (e.g. app reload, navigation cancel, socket reset)
+  if (err.type === 'request.aborted' || err.code === 'ECONNABORTED' || err.message === 'request aborted') {
+    logger.warn(`Client disconnected before request completed: ${req.method} ${req.originalUrl || req.url}`);
+    if (!res.headersSent) {
+      try {
+        res.status(400).end();
+      } catch (_) {}
+    }
+    return;
+  }
+
+  // Payload too large handling
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    logger.warn(`Payload too large: ${req.method} ${req.originalUrl || req.url}`);
+    if (!res.headersSent) {
+      return res.status(413).json({
+        success: false,
+        message: 'Payload too large. Please select a compressed image (< 10MB).',
+      });
+    }
+    return;
+  }
+
   logger.error(`Unhandled error: ${err.message}`, { stack: err.stack });
+
+  if (res.headersSent) {
+    return next(err);
+  }
 
   const status = err.status || 500;
   const message = err.message || 'Internal Server Error';
