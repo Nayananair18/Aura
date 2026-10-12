@@ -15,7 +15,7 @@ const { saveToLedger, getLedgerProof } = require('../utils/ledgerStore');
 const config = require('../config/config');
 const logger = require('../utils/logger');
 const { analyzeImageMetadata, toBuffer } = require('../utils/metadataAnalyzer');
-const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../tests/groqAnalyzer');
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require('../tests/testAnalyzer');
 
 /**
  * Check if MongoDB is connected and ready for writes
@@ -124,14 +124,14 @@ const verifyMedia = async (req, res) => {
             (screenReplayRes?.confidence ?? 0) >= 80
           );
 
-          const isScreenRecaptureDetected = isGroqConfirmedRealWorld 
-            ? false 
+          const isScreenRecaptureDetected = isGroqConfirmedRealWorld
+            ? false
             : (isGroqScreenReplay || isMlScreenRecapture);
 
           const aiProb = mlRes?.aiProbability ?? 0;
           const groqAiProb = groqRes?.success ? (groqRes.aiProbability ?? 0) : 0;
           const isGroqAiDetected = Boolean(
-            groqRes?.success && 
+            groqRes?.success &&
             (groqRes.groqClassification === 'AI_GENERATED' || groqAiProb >= 70)
           );
           const isRealCamClass = mlRes?.classification === 'REAL_CAMERA' || mlRes?.classification === 'AUTHENTIC_CAMERA' || groqRes?.groqClassification === 'REAL_CAMERA' || groqRes?.groqClassification === 'REAL_WORLD';
@@ -147,7 +147,7 @@ const verifyMedia = async (req, res) => {
             const newProofId = formatProofId();
             const baseUrl = process.env.VERIFICATION_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://aura-app.com/verify';
             const verificationUrl = baseUrl.endsWith('/') ? `${baseUrl}${newProofId}` : `${baseUrl}/${newProofId}`;
-            
+
             let watermarkedImage = imagePayload;
             try {
               watermarkedImage = await watermarkImage(imagePayload, newProofId, metadata?.uploadedAt || new Date().toISOString(), verificationUrl);
@@ -156,7 +156,7 @@ const verifyMedia = async (req, res) => {
             }
 
             const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : (safeUploadedHash || generateHash({ newProofId, date: Date.now() }));
-            
+
             autoCertifiedProof = {
               proofId: newProofId,
               hash: finalImageHash,
@@ -205,19 +205,19 @@ const verifyMedia = async (req, res) => {
     // If exact match on registered proof: 100%
     // If proof found but hash mismatch (tampered): 15%
     // If not found in database ledger: 0% (Unregistered)
-    const matchPercentage = proofFound 
-      ? (isExactMatch ? 100 : 15.0) 
+    const matchPercentage = proofFound
+      ? (isExactMatch ? 100 : 15.0)
       : 0;
 
-    const confidence = isExactMatch 
-      ? 99.7 
-      : (proofFound 
-          ? 15.0 
-          : (isExternalScreenRecapture 
-              ? (externalAnalysisResults?.screenReplayRes?.confidence || 95.0) 
-              : (isExternalAiGenerated 
-                  ? Math.max(externalAnalysisResults?.groqRes?.aiProbability || 0, externalAnalysisResults?.mlRes?.aiProbability || 0, 90.0) 
-                  : 0)));
+    const confidence = isExactMatch
+      ? 99.7
+      : (proofFound
+        ? 15.0
+        : (isExternalScreenRecapture
+          ? (externalAnalysisResults?.screenReplayRes?.confidence || 95.0)
+          : (isExternalAiGenerated
+            ? Math.max(externalAnalysisResults?.groqRes?.aiProbability || 0, externalAnalysisResults?.mlRes?.aiProbability || 0, 90.0)
+            : 0)));
 
     let status;
     let auraFlag;
@@ -235,8 +235,8 @@ const verifyMedia = async (req, res) => {
       status = 'tampered';
       auraFlag = 'RED';
       message = '✗ MEDIA MODIFIED';
-      statusDetails = isExactMatch 
-        ? 'Proof Found | Media recorded as Tampered/Suspicious' 
+      statusDetails = isExactMatch
+        ? 'Proof Found | Media recorded as Tampered/Suspicious'
         : 'Proof Found | Media Integrity: MISMATCH';
     } else if (isExternalScreenRecapture) {
       status = 'tampered';

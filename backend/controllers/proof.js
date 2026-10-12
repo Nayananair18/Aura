@@ -15,7 +15,7 @@ const {
 const logger = require("../utils/logger");
 const { saveToLedger } = require("../utils/ledgerStore");
 const { analyzeImageMetadata } = require("../utils/metadataAnalyzer");
-const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require("../tests/groqAnalyzer");
+const { analyzeWithGroq, analyzeScreenReplayWithGroq } = require("../tests/testAnalyzer");
 
 // Max base64 image size: ~8MB (covers a full 6MP JPEG at quality 95)
 const MAX_MEDIA_SIZE_BYTES = 8 * 1024 * 1024;
@@ -197,8 +197,8 @@ const generateAuthenticityProof = async (req, res) => {
     );
 
     // Groq VLM semantic vision overrides heuristic false positives (e.g. keyboard keycaps, blinds, tiles)
-    const isScreenRecaptureDetected = isGroqConfirmedRealWorld 
-      ? false 
+    const isScreenRecaptureDetected = isGroqConfirmedRealWorld
+      ? false
       : (isGroqScreenReplay || isMlScreenRecapture);
 
     const groqAiProb = groqAnalysis?.imageAnalysis?.success ? (groqAnalysis?.imageAnalysis?.aiProbability ?? 0) : 0;
@@ -220,7 +220,7 @@ const generateAuthenticityProof = async (req, res) => {
       logger.info(`Authenticity verified. Applying A.U.R.A. Certified Seal (${proofId})...`);
       watermarkedImage = await watermarkImage(mediaData, proofId, metadata.timestamp || new Date().toISOString(), verificationUrl);
     }
-    
+
     // Hash the final image bytes
     const finalImageHash = watermarkedImage ? generateImageHash(watermarkedImage) : proofHash;
 
@@ -235,16 +235,16 @@ const generateAuthenticityProof = async (req, res) => {
       realMlAnalysis?.aiProbability ?? 0,
       groqAiProb
     );
-    const finalClassification = isScreenRecaptureDetected 
-      ? 'SCREEN_RECAPTURE' 
-      : (isGroqAiDetected 
-          ? 'AI_GENERATED' 
-          : (realMlAnalysis?.classification || (finalAuraFlag === 'GREEN' ? 'REAL_CAMERA' : 'UNCERTAIN')));
-    const failureReason = isScreenRecaptureDetected 
-      ? 'Photo of a digital screen detected (Optical PWM flicker & subpixel grid interference)' 
-      : (isGroqAiDetected 
-          ? 'Synthetic AI generation detected by forensic vision analysis' 
-          : (finalAuraFlag === 'RED' ? 'Sensor integrity anomaly detected' : null));
+    const finalClassification = isScreenRecaptureDetected
+      ? 'SCREEN_RECAPTURE'
+      : (isGroqAiDetected
+        ? 'AI_GENERATED'
+        : (realMlAnalysis?.classification || (finalAuraFlag === 'GREEN' ? 'REAL_CAMERA' : 'UNCERTAIN')));
+    const failureReason = isScreenRecaptureDetected
+      ? 'Photo of a digital screen detected (Optical PWM flicker & subpixel grid interference)'
+      : (isGroqAiDetected
+        ? 'Synthetic AI generation detected by forensic vision analysis'
+        : (finalAuraFlag === 'RED' ? 'Sensor integrity anomaly detected' : null));
 
     // Standardized Proof Document for MongoDB and In-Memory Ledger
     const proofDoc = {
